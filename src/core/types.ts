@@ -62,7 +62,6 @@ export interface Enemy {
   sprite: Phaser.GameObjects.Image | null;
   hitAt: number;
   touchAt: number;
-  blinkAt: number;
   castAt: number;
   summonAt: number;
   growT: number;

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ORB, SPAWN } from '../src/config';
-import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale, pickEnemyType } from '../src/data/enemies';
+import { ORB, PLAYER, SPAWN } from '../src/config';
+import {
+  ENEMY_DEFS,
+  SPAWN_POOL,
+  enemyHpScale,
+  enemySpeedScale,
+  pickEnemyType,
+  raceSprintFactor,
+} from '../src/data/enemies';
 import { PASSIVE_IDS } from '../src/data/passives';
 import { createRun } from '../src/core/state';
 import { applyUpgrade } from '../src/systems/progression';
@@ -180,6 +187,24 @@ describe('passive isolation', () => {
       expect(ENEMY_DEFS[id].speed).toBe(enemySpeeds[i]);
       expect(ENEMY_DEFS[id].hp).toBe(enemyHp[i]);
     });
+  });
+
+  it('keeps the race condition the fastest bug but still outrunnable', () => {
+    const racer = ENEMY_DEFS.race.speed;
+    for (const id of SPAWN_POOL) {
+      if (id === 'race') continue;
+      expect(racer).toBeGreaterThan(ENEMY_DEFS[id].speed);
+    }
+    const sprint = racer * raceSprintFactor(600) * enemySpeedScale(300);
+    expect(sprint).toBeLessThan(PLAYER.speed);
+  });
+
+  it('sprints harder the further away the target is, capped at +25%', () => {
+    expect(raceSprintFactor(0)).toBe(1);
+    expect(raceSprintFactor(200)).toBeCloseTo(1.125, 6);
+    expect(raceSprintFactor(400)).toBeCloseTo(1.25, 6);
+    expect(raceSprintFactor(5000)).toBeCloseTo(1.25, 6);
+    expect(raceSprintFactor(120)).toBeLessThan(raceSprintFactor(300));
   });
 
   it('scales enemy speed with the run clock only', () => {

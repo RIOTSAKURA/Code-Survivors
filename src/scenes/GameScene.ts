@@ -17,7 +17,7 @@ import type {
   UpgradeId,
   WeaponId,
 } from '../core/types';
-import { ENEMY_DEFS, enemyHpScale, enemySpeedScale, pickEnemyType } from '../data/enemies';
+import { ENEMY_DEFS, enemyHpScale, enemySpeedScale, pickEnemyType, raceSprintFactor } from '../data/enemies';
 import {
   WEAPON_DEFS,
   WEAPON_IDS,
@@ -368,25 +368,16 @@ export class GameScene extends Phaser.Scene {
         speed *= 1 / grow;
         if (e.sprite) e.sprite.setScale(grow * (e.elite ? 1.25 : 1) * TEX_SCALE);
       }
+      if (e.type === 'race') {
+        speed *= raceSprintFactor(dist);
+        if (e.sprite) e.sprite.setAlpha(0.7 + 0.3 * Math.abs(Math.sin(time * 7 + e.id)));
+      }
       if (e.boss) {
         speed *= 1 + (this.bossPhase(e) - 1) * 0.22;
       }
 
       e.vx = nx * speed;
       e.vy = ny * speed;
-
-      if (e.type === 'race') {
-        e.blinkAt -= dt;
-        if (e.sprite) e.sprite.setAlpha(0.55 + 0.45 * Math.abs(Math.sin(time * 6 + e.id)));
-        if (e.blinkAt <= 0 && dist > 120) {
-          e.blinkAt = this.rng.range(1.5, 2.6);
-          const step = Math.min(dist - 60, 170);
-          this.fx.burst(e.x, e.y, e.color, 5, 130, 0.35, 0.5);
-          e.x += nx * step;
-          e.y += ny * step;
-          this.fx.burst(e.x, e.y, e.color, 5, 130, 0.35, 0.5);
-        }
-      }
 
       if (e.boss) {
         this.updateBoss(e, dt, dist);
@@ -1184,7 +1175,6 @@ export class GameScene extends Phaser.Scene {
       sprite,
       hitAt: -10,
       touchAt: 0,
-      blinkAt: this.rng.range(0.6, 1.8),
       castAt: 3,
       summonAt: 6,
       growT: 0,
@@ -1236,7 +1226,6 @@ export class GameScene extends Phaser.Scene {
       sprite,
       hitAt: -10,
       touchAt: 0,
-      blinkAt: 0,
       castAt: 3.4,
       summonAt: 8.5,
       growT: 0,

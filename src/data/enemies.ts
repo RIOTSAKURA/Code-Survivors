@@ -75,7 +75,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     color: PALETTE.purple,
     scale: 26,
     hp: 18,
-    speed: 78,
+    speed: 128,
     damage: 11,
     radius: 13,
     xp: 2,
@@ -124,6 +124,10 @@ export function enemyHpScale(time: number, playerLevel: number): number {
   return (
     1 + minutes * SPAWN.hpScalePerMin + Math.max(0, playerLevel - 1) * SPAWN.hpScalePerLevel
   );
+}
+
+export function raceSprintFactor(dist: number): number {
+  return 1 + 0.25 * Math.min(dist / 400, 1);
 }
 
 export function enemySpeedScale(time: number): number {

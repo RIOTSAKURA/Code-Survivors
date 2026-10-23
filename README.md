@@ -67,7 +67,7 @@ npm run preview
 | Syntax Bug | 红色 `~` | 直线追击 |
 | Null Pointer | 灰色 `null` | 无视碰撞挤位、慢速穿行 |
 | Memory Leak | 绿色 `[]` | 持续膨胀变大，接触伤害 |
-| Race Condition | 紫色 `<<` | 周期性闪烁瞬移逼近 |
+| Race Condition | 紫色 `<<` | 冲刺追击：最快的基础移速，距离越远冲得越快 |
 | Stack Overflow | 暗红 `{}` | 高血量慢速，撞击大量击退 |
 | Boss: Segfault | `0xDEAD` | 每 115s 出现，三阶段：环形弹幕 → 召唤小怪 → 密集弹幕 |
 
