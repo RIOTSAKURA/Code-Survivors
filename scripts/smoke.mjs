@@ -346,7 +346,7 @@ try {
   await lootPage.keyboard.press('Enter');
   await lootPage.waitForTimeout(1400);
   await lootPage.keyboard.press('Digit1');
-  await lootPage.waitForTimeout(7000);
+  await lootPage.waitForTimeout(10000);
   const still = await readHud(lootPage);
   check(
     still.orbs >= 10,
@@ -354,9 +354,9 @@ try {
     `orbs=${still.orbs} kills=${still.kills} xp=${Math.round(still.xp)}`,
   );
   check(
-    still.xp < still.kills * 8,
+    still.xp < still.kills * 2.3,
     'distant loot is not vacuumed into the player',
-    `collected ${Math.round(still.xp)} xp from ${still.kills} kills`,
+    `collected ${Math.round(still.xp)} xp of ~${(still.kills * 3.2).toFixed(0)} dropped from ${still.kills} kills`,
   );
   await lootPage.screenshot({ path: join(SHOTS, '11-loot-on-ground.png') });
 
@@ -383,16 +383,48 @@ try {
   const gainedKills = swept.kills - still.kills;
   const ratio = gained / Math.max(1, gainedKills * 3.2);
   check(
-    ratio > 1.2,
+    ratio > 0.6,
     'orbs entering the pickup ring are collected while moving',
     `${(ratio * 100).toFixed(0)}% of dropped xp collected over ${gainedKills} kills`,
   );
+  const dropped = gainedKills * 2;
+  const leftBehind = swept.orbs - still.orbs;
   check(
-    swept.orbs - still.orbs < gainedKills * 2.2,
+    leftBehind / Math.max(1, dropped) < 0.6,
     'the magnet keeps up instead of leaving loot behind',
-    `orbs ${still.orbs} -> ${swept.orbs} over ${gainedKills} kills`,
+    `${leftBehind} of ~${dropped} dropped orbs still on the ground`,
   );
   await lootPage.close();
+
+  const expiryPage = await context.newPage();
+  expiryPage.on('pageerror', (e) => errors.push(`pageerror(expiry): ${e.message}`));
+  await expiryPage.goto(`http://localhost:${PORT}/?skip=120&orbLife=3`, { waitUntil: 'load' });
+  await expiryPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await expiryPage.waitForTimeout(700);
+  await expiryPage.keyboard.press('Enter');
+  await expiryPage.waitForTimeout(1400);
+  await expiryPage.keyboard.press('Digit1');
+  const holdStill = async (ms) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      const hud = await readHud(expiryPage);
+      if (hud.gameOver) return;
+      if (hud.choices > 0) await expiryPage.keyboard.press('Digit1');
+      await expiryPage.waitForTimeout(150);
+    }
+  };
+  await holdStill(14000);
+  const rateStart = await readHud(expiryPage);
+  await holdStill(3000);
+  const expired = await readHud(expiryPage);
+  const killRate = (expired.kills - rateStart.kills) / 3;
+  const bound = killRate * 3 * 3 + 8;
+  check(
+    expired.orbs <= bound,
+    'uncollected loot expires instead of piling up forever',
+    `orbs=${expired.orbs} vs bound ${bound.toFixed(0)} at ${killRate.toFixed(1)} kills/s`,
+  );
+  await expiryPage.close();
 
   const menuPage = await context.newPage();
   menuPage.on('pageerror', (e) => errors.push(`pageerror(menu): ${e.message}`));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SPAWN } from '../src/config';
+import { ORB, SPAWN } from '../src/config';
 import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale, pickEnemyType } from '../src/data/enemies';
 import { PASSIVE_IDS } from '../src/data/passives';
 import {
@@ -137,6 +137,15 @@ describe('enemy scaling', () => {
     const travel = (600 - SPAWN.ringPadding) / 88;
     expect(travel).toBeGreaterThan(4);
     expect(travel).toBeLessThan(8);
+  });
+});
+
+describe('dropped loot lifetime', () => {
+  it('expires unpicked loot but warns before doing so', () => {
+    expect(ORB.lifetime).toBeGreaterThan(10);
+    expect(ORB.blinkTime).toBeGreaterThan(0);
+    expect(ORB.blinkTime).toBeLessThan(ORB.lifetime);
+    expect(ORB.bigLifetime).toBeGreaterThan(ORB.lifetime);
   });
 });
 

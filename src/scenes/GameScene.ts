@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DEPTH, PALETTE, PLAYER, SPAWN, TEX_SCALE, WORLD } from '../config';
+import { DEPTH, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, WORLD } from '../config';
 import { SpatialGrid, findNearestMany } from '../core/grid';
 import { applyTextResolution, setupWorldCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ImagePool } from '../core/pool';
@@ -45,6 +45,7 @@ import {
 } from '../data/weapons';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
 import { Fx } from '../systems/fx';
+import { dampOrbVelocity, homeOrbVelocity } from '../systems/loot';
 import { applyUpgrade, pickChoices, toCard, xpForLevel } from '../systems/progression';
 
 const MAX_ORBIT_SLOTS = 10;
@@ -92,6 +93,7 @@ export class GameScene extends Phaser.Scene {
   private panelOpen = false;
   private orbitPhase = 0;
   private orbiterSeq = 0;
+  private orbLifeScale = 1;
   private scratch: Enemy[] = [];
   private scratch2: Enemy[] = [];
   private targetScratch: Enemy[] = [];
@@ -123,6 +125,7 @@ export class GameScene extends Phaser.Scene {
     this.panelOpen = false;
     this.orbitPhase = 0;
     this.orbiterSeq = 0;
+    this.orbLifeScale = this.readQaOrbLife();
     this.invulnUntil = 0;
     this.knockVx = 0;
     this.knockVy = 0;
@@ -257,12 +260,19 @@ export class GameScene extends Phaser.Scene {
     syncHud(this.run, this.xpNeed);
   }
 
+  private readQaOrbLife(): number {
+    if (typeof window === 'undefined') return 1;
+    const value = Number(new URLSearchParams(window.location.search).get('orbLife') ?? '0');
+    return Number.isFinite(value) && value > 0 ? value / ORB.lifetime : 1;
+  }
+
   private applyQaSkip(): void {
     if (typeof window === 'undefined') return;
     const skip = Number(new URLSearchParams(window.location.search).get('skip') ?? '0');
     if (!Number.isFinite(skip) || skip <= 0) return;
     this.run.time = skip;
-    this.nextBossAt = skip + 4;
+    const bossIndex = Math.max(0, Math.floor((skip - SPAWN.bossFirstAt) / SPAWN.bossEvery) + 1);
+    this.nextBossAt = SPAWN.bossFirstAt + bossIndex * SPAWN.bossEvery;
     this.spawnTimer = 0;
     const levels = Math.min(45, 1 + Math.floor(0.05 * Math.pow(skip, 1.25)));
     this.run.level = levels;
@@ -1020,27 +1030,30 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < this.orbs.length; i++) {
       const o = this.orbs[i];
       if (o.dead) continue;
+      o.life -= dt;
+      if (o.life <= 0) {
+        o.dead = true;
+        this.fx.burst(o.x, o.y, o.big ? PALETTE.cyan : PALETTE.green, 3, 70, 0.3, 0.4);
+        continue;
+      }
       const dx = this.playerX - o.x;
       const dy = this.playerY - o.y;
       const dist = Math.hypot(dx, dy) || 1;
       if (dist < stats.pickupRadius) {
-        const speed = Math.max(stats.speed * PLAYER.magnetCatchUp, dist * PLAYER.magnetGain);
-        const blend = Math.min(1, dt * 18);
-        o.vx += ((dx / dist) * speed - o.vx) * blend;
-        o.vy += ((dy / dist) * speed - o.vy) * blend;
+        homeOrbVelocity(o, dx, dy, dist, stats.speed, dt);
       } else {
-        const decay = Math.pow(0.86, dt * 60);
-        o.vx *= decay;
-        o.vy *= decay;
-        if (Math.abs(o.vx) < 2) o.vx = 0;
-        if (Math.abs(o.vy) < 2) o.vy = 0;
+        dampOrbVelocity(o, dt);
       }
       o.x += o.vx * dt;
       o.y += o.vy * dt;
       if (o.sprite) {
         o.sprite.setPosition(o.x, o.y);
         const pulse = 1 + 0.12 * Math.sin(this.run.time * 6 + o.value);
-        o.sprite.setScale(pulse * (o.big ? 1.35 : 1) * TEX_SCALE);
+        const fading = o.life < ORB.blinkTime;
+        const dim = fading ? 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(this.run.time * 16 + o.value)) : 1;
+        const shrink = fading ? 0.85 + 0.15 * (o.life / ORB.blinkTime) : 1;
+        o.sprite.setScale(pulse * shrink * (o.big ? 1.35 : 1) * TEX_SCALE);
+        o.sprite.setAlpha(dim);
       }
       const restX = this.playerX - o.x;
       const restY = this.playerY - o.y;
@@ -1057,7 +1070,7 @@ export class GameScene extends Phaser.Scene {
     const count = big ? 6 : this.rng.int(1, 3);
     const per = Math.max(0.5, (value * SPAWN.xpValueScale) / count);
     for (let i = 0; i < count; i++) {
-      const isBig = big || this.rng.chance(0.09);
+      const isBig = !big && this.rng.chance(0.09);
       const angle = this.rng.range(0, TAU);
       const speed = this.rng.range(40, 115);
       const sprite = this.images.acquire();
@@ -1073,6 +1086,7 @@ export class GameScene extends Phaser.Scene {
         vy: Math.sin(angle) * speed,
         value: isBig ? per * 3 : per,
         big: isBig,
+        life: (isBig ? ORB.bigLifetime : ORB.lifetime) * this.orbLifeScale,
         sprite,
         dead: false,
       });

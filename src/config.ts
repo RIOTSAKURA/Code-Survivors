@@ -54,6 +54,12 @@ export const SPAWN = {
   speedScalePerMin: 0.035,
 };
 
+export const ORB = {
+  lifetime: 20,
+  bigLifetime: 35,
+  blinkTime: 7,
+};
+
 export const DEPTH = {
   ground: -10,
   orb: 4,

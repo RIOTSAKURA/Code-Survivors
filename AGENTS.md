@@ -44,7 +44,8 @@ land in `screenshots/` (gitignored).
   object + event bus), `records` (localStorage), `hidpi` (device pixel ratio helpers), `types`.
 - `src/data/` — pure data and curves for weapons, enemies and passives. No Phaser imports; unit
   tested.
-- `src/systems/` — `progression` (xp curve, upgrade draw/apply — pure), `fx` (particles, floaters).
+- `src/systems/` — `progression` (xp curve, upgrade draw/apply — pure), `loot` (orb homing/damping,
+  simulated in unit tests), `fx` (particles, floaters).
 - `src/scenes/` — `BootScene` (generates every texture), `MenuScene`, `GameScene` (the simulation),
   `UIScene` (HUD, upgrade panel, pause/game over overlays).
 - `scripts/smoke.mjs` — the end-to-end browser test.
@@ -63,7 +64,8 @@ land in `screenshots/` (gitignored).
   polling.
 - **XP orbs stay where a bug dies.** Only orbs inside `pickupRadius` may move, and their homing
   speed must always beat the player's (`PLAYER.magnetCatchUp`) or a running player outruns loot that
-  already entered the ring.
+  already entered the ring. Unpicked orbs expire (`ORB.lifetime` / `ORB.bigLifetime`) and blink for
+  `ORB.blinkTime` beforehand, so the field cannot fill up permanently.
 - **Paren shield orbiters** take their angle from `orbitSlotAngles(count, phase)`. Never seed an
   orbiter's angle from the count at creation time — that desynchronises the ring when the count
   grows.
@@ -78,6 +80,7 @@ land in `screenshots/` (gitignored).
   smoke test asserts against it.
 - `?skip=<seconds>` — starts a run already progressed (grants the matching build, first boss ~4 s
   later). Used by the smoke test for late-game and boss scenarios.
+- `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
 
 ## Style
 

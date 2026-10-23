@@ -118,6 +118,7 @@ export interface Orb {
   vy: number;
   value: number;
   big: boolean;
+  life: number;
   sprite: Phaser.GameObjects.Image | null;
   dead: boolean;
 }
