@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Survivors</title>
+    <style>
+      :root {
+        --bg: #1e1e2e;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Fira Code', monospace;
+        color: #cdd6f4;
+      }
+      #game {
+        position: absolute;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+        touch-action: none;
+      }
+      #boot-hint {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6c7086;
+        letter-spacing: 0.2em;
+        font-size: 14px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="boot-hint">compiling…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

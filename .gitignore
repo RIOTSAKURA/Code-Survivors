@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.vite/
+coverage/
+screenshots/
+.env
+.env.*
+*.pem
+*.key
+*.log
+.npmrc
