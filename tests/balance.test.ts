@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ORB, SPAWN } from '../src/config';
 import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale, pickEnemyType } from '../src/data/enemies';
 import { PASSIVE_IDS } from '../src/data/passives';
+import { createRun } from '../src/core/state';
+import { applyUpgrade } from '../src/systems/progression';
 import {
   WEAPON_DEFS,
   WEAPON_IDS,
@@ -160,6 +162,35 @@ describe('dropped loot', () => {
     expect(bossReward).toBeGreaterThan(200);
     expect(bossReward).toBeLessThan(500);
     expect(normalKills).toBeLessThan(140);
+  });
+});
+
+describe('passive isolation', () => {
+  it('never lets the player speed passive leak into enemy stats', () => {
+    const ids = [...SPAWN_POOL, 'boss'] as const;
+    const enemySpeeds = ids.map((id) => ENEMY_DEFS[id].speed);
+    const enemyHp = ids.map((id) => ENEMY_DEFS[id].hp);
+    const run = createRun();
+    for (const id of PASSIVE_IDS) {
+      for (let level = 0; level < 6; level++) applyUpgrade(run, id);
+    }
+    expect(run.stats.speed).toBeCloseTo(200 * Math.pow(1.15, 5), 6);
+    expect(ENEMY_DEFS.syntax.speed).toBe(enemySpeeds[0]);
+    ids.forEach((id, i) => {
+      expect(ENEMY_DEFS[id].speed).toBe(enemySpeeds[i]);
+      expect(ENEMY_DEFS[id].hp).toBe(enemyHp[i]);
+    });
+  });
+
+  it('scales enemy speed with the run clock only', () => {
+    const scaleAt = (seconds: number) => enemySpeedScale(seconds);
+    expect(scaleAt(0)).toBe(1);
+    expect(scaleAt(60)).toBeGreaterThan(1);
+    expect(scaleAt(60)).toBeCloseTo(scaleAt(60), 12);
+    expect(enemySpeedScale(600) / enemySpeedScale(300)).toBeCloseTo(
+      (1 + 10 * SPAWN.speedScalePerMin) / (1 + 5 * SPAWN.speedScalePerMin),
+      12,
+    );
   });
 });
 

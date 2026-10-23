@@ -124,13 +124,15 @@ export function applyUpgrade(run: RunState, id: UpgradeId): void {
   const stats = run.stats;
   if (WEAPON_IDS.includes(id as WeaponId)) {
     const weaponId = id as WeaponId;
-    const level = (run.weapons[weaponId] ?? 0) + 1;
-    run.weapons[weaponId] = Math.min(level, WEAPON_DEFS[weaponId].maxLevel);
+    const level = run.weapons[weaponId] ?? 0;
+    if (level >= WEAPON_DEFS[weaponId].maxLevel) return;
+    run.weapons[weaponId] = level + 1;
     return;
   }
   const passiveId = id as PassiveId;
-  const level = (run.passives[passiveId] ?? 0) + 1;
-  run.passives[passiveId] = Math.min(level, PASSIVE_DEFS[passiveId].maxLevel);
+  const level = run.passives[passiveId] ?? 0;
+  if (level >= PASSIVE_DEFS[passiveId].maxLevel) return;
+  run.passives[passiveId] = level + 1;
   switch (passiveId) {
     case 'multicore':
       stats.projectileBonus += 1;
