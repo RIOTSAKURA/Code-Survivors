@@ -26,7 +26,7 @@ export interface UpgradeCard {
 }
 
 export function xpForLevel(level: number): number {
-  return Math.floor(8 + level * 3.6 + Math.pow(level, 1.3));
+  return Math.floor(8 + level * 2 + Math.pow(level, 1.65));
 }
 
 const OPENING_WEAPONS: WeaponId[] = ['dart', 'bomb', 'ray', 'cone'];

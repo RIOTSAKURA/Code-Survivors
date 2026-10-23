@@ -17,12 +17,17 @@ describe('xp curve', () => {
     expect(xpForLevel(1)).toBeLessThanOrEqual(16);
   });
 
-  it('keeps the early game deliberately slow without exploding later', () => {
+  it('keeps the early game deliberately slow', () => {
     let early = 0;
     for (let level = 1; level <= 5; level++) early += xpForLevel(level);
     expect(early).toBeGreaterThanOrEqual(100);
     expect(early).toBeLessThanOrEqual(140);
-    expect(xpForLevel(20) / xpForLevel(1)).toBeLessThan(15);
+  });
+
+  it('ramps the cost hard in the late game so levels stop flying by', () => {
+    expect(xpForLevel(40) / xpForLevel(10)).toBeGreaterThan(6);
+    expect(xpForLevel(30) / xpForLevel(15)).toBeGreaterThan(2.5);
+    expect(xpForLevel(50)).toBeGreaterThan(700);
   });
 });
 

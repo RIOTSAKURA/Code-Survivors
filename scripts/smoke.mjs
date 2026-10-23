@@ -59,9 +59,11 @@ const check = (ok, label, detail = '') => {
 };
 
 const readHud = (page) => page.evaluate(() => ({ ...window.__hud }));
+const xpNeed = (level) => Math.floor(8 + level * 2 + Math.pow(level, 1.65));
+
 const cumulativeXp = (level) => {
   let sum = 0;
-  for (let l = 1; l < level; l++) sum += Math.floor(8 + l * 3.6 + Math.pow(l, 1.3));
+  for (let l = 1; l < level; l++) sum += xpNeed(l);
   return sum;
 };
 
@@ -171,6 +173,11 @@ try {
     totalLevels(mid) >= mid.level - 1,
     'every level up applied an upgrade',
     `lvl=${mid.level} applied=${totalLevels(mid)}`,
+  );
+  check(
+    mid.xpNeed === xpNeed(mid.level),
+    'smoke xp curve mirror matches the game',
+    `lvl=${mid.level} needs=${mid.xpNeed} mirrored=${xpNeed(mid.level)}`,
   );
   check(mid.weapons.length >= 1, 'weapons equipped', `w=${mid.weapons.length}`);
 

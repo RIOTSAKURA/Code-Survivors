@@ -274,7 +274,7 @@ export class GameScene extends Phaser.Scene {
     const bossIndex = Math.max(0, Math.floor((skip - SPAWN.bossFirstAt) / SPAWN.bossEvery) + 1);
     this.nextBossAt = SPAWN.bossFirstAt + bossIndex * SPAWN.bossEvery;
     this.spawnTimer = 0;
-    const levels = Math.min(45, 1 + Math.floor(0.05 * Math.pow(skip, 1.25)));
+    const levels = Math.min(45, 1 + Math.floor(0.36 * Math.pow(skip, 0.79)));
     this.run.level = levels;
     this.xpNeed = xpForLevel(this.run.level);
     for (let i = 0; i < Math.min(WEAPON_IDS.length, 2 + Math.floor(levels / 3)); i++) {
