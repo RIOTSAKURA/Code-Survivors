@@ -37,6 +37,8 @@ import {
   orbitCount,
   orbitDamage,
   orbitRadius,
+  orbitSlotAngles,
+  orbitSpin,
   rayCount,
   rayDamage,
   rayWidth,
@@ -88,6 +90,8 @@ export class GameScene extends Phaser.Scene {
   private pendingChoices: UpgradeId[] = [];
   private lastPauseToggle = -1000;
   private panelOpen = false;
+  private orbitPhase = 0;
+  private orbiterSeq = 0;
   private scratch: Enemy[] = [];
   private scratch2: Enemy[] = [];
   private targetScratch: Enemy[] = [];
@@ -117,6 +121,8 @@ export class GameScene extends Phaser.Scene {
     this.pendingChoices = [];
     this.lastPauseToggle = -1000;
     this.panelOpen = false;
+    this.orbitPhase = 0;
+    this.orbiterSeq = 0;
     this.invulnUntil = 0;
     this.knockVx = 0;
     this.knockVy = 0;
@@ -734,22 +740,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncOrbiters(level: number, dt: number): void {
-    const want = orbitCount(level);
-    while (this.orbiters.length > want) {
+    const count = orbitCount(level);
+    while (this.orbiters.length > count) {
       const o = this.orbiters.pop()!;
       if (o.sprite) this.images.release(o.sprite);
     }
-    while (this.orbiters.length < want) {
-      const index = this.orbiters.length;
+    this.orbitPhase = (this.orbitPhase + orbitSpin(level) * dt) % TAU;
+    const slots = orbitSlotAngles(count, this.orbitPhase);
+    while (this.orbiters.length < count) {
+      const slot = this.orbiters.length;
       const sprite = this.images.acquire();
       sprite.setTexture('w_orbit');
       sprite.setDepth(DEPTH.orbiter);
       this.orbiters.push({
-        index,
-        angle: (index / want) * TAU,
+        index: this.orbiterSeq++ % MAX_ORBIT_SLOTS,
+        angle: slots[slot],
         radius: orbitRadius(level),
         damage: orbitDamage(level),
-        spin: 2.5 + level * 0.12,
         x: this.playerX,
         y: this.playerY,
         sprite,
@@ -757,10 +764,14 @@ export class GameScene extends Phaser.Scene {
     }
     const radius = orbitRadius(level);
     const damage = orbitDamage(level) * this.run.stats.damageMult;
-    for (const o of this.orbiters) {
+    for (let i = 0; i < this.orbiters.length; i++) {
+      const o = this.orbiters[i];
       o.radius = radius;
       o.damage = damage;
-      o.angle += o.spin * dt;
+      let drift = slots[i] - o.angle;
+      while (drift > Math.PI) drift -= TAU;
+      while (drift < -Math.PI) drift += TAU;
+      o.angle += drift * Math.min(1, dt * 8);
       o.x = this.playerX + Math.cos(o.angle) * radius;
       o.y = this.playerY + Math.sin(o.angle) * radius;
       if (o.sprite) {

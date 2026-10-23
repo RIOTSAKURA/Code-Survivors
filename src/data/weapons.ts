@@ -1,6 +1,8 @@
 import { PALETTE } from '../config';
 import type { WeaponId } from '../core/types';
 
+const TAU_LOCAL = Math.PI * 2;
+
 export interface WeaponDef {
   id: WeaponId;
   name: string;
@@ -24,6 +26,12 @@ export const dartSpeed = (l: number): number => 600 + 24 * (l - 1);
 export const dartPierce = (l: number): number => (l >= 7 ? 1 : 0);
 
 export const orbitCount = (l: number): number => 1 + Math.ceil(l / 2);
+export const orbitSpin = (l: number): number => 2.5 + l * 0.12;
+export const orbitSlotAngles = (count: number, phase: number): number[] => {
+  const angles: number[] = [];
+  for (let slot = 0; slot < count; slot++) angles.push(phase + (slot / count) * TAU_LOCAL);
+  return angles;
+};
 export const orbitDamage = (l: number): number => 7 + 3 * (l - 1);
 export const orbitRadius = (l: number): number => 76 + 7 * (l - 1);
 

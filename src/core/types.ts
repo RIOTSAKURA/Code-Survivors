@@ -96,7 +96,6 @@ export interface Orbiter {
   angle: number;
   radius: number;
   damage: number;
-  spin: number;
   x: number;
   y: number;
   sprite: Phaser.GameObjects.Image | null;
