@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
@@ -7,6 +8,7 @@ import { chromium } from 'playwright-core';
 const DIST = resolve('dist');
 const PORT = 4183;
 const SHOTS = resolve('screenshots');
+const PKG_VERSION = JSON.parse(readFileSync(resolve('package.json'), 'utf-8')).version;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -135,6 +137,17 @@ try {
     await page.evaluate(() => !document.getElementById('boot-hint')),
     'boot completes and menu renders',
   );
+  const versionLabel = await page.evaluate(() => {
+    const el = document.getElementById('version');
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    return {
+      text: el.textContent,
+      bottomRight: Math.abs(window.innerWidth - box.right) < 24 && Math.abs(window.innerHeight - box.bottom) < 24,
+    };
+  });
+  check(versionLabel?.text === `v${PKG_VERSION}`, 'version label matches package.json', String(versionLabel?.text));
+  check(versionLabel?.bottomRight === true, 'version label sits in the bottom right corner');
 
   await page.keyboard.press('Enter');
   await page.waitForTimeout(1400);

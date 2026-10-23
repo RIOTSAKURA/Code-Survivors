@@ -12,6 +12,9 @@ bus.on<SfxName>('sfx', (name) => sfx.play(name));
 
 (window as unknown as { __hud: typeof hud }).__hud = hud;
 
+const versionLabel = document.getElementById('version');
+if (versionLabel) versionLabel.textContent = `v${__APP_VERSION__}`;
+
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',

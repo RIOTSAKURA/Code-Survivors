@@ -30,6 +30,17 @@
         display: block;
         touch-action: none;
       }
+      #version {
+        position: fixed;
+        right: 10px;
+        bottom: 8px;
+        z-index: 10;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        color: #585b70;
+        pointer-events: none;
+        user-select: none;
+      }
       #boot-hint {
         position: absolute;
         inset: 0;
@@ -46,6 +57,7 @@
   <body>
     <div id="game"></div>
     <div id="boot-hint">compiling…</div>
+    <div id="version">v0.0.0</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
