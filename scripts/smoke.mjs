@@ -9,6 +9,7 @@ const DIST = resolve('dist');
 const PORT = 4183;
 const SHOTS = resolve('screenshots');
 const PKG_VERSION = JSON.parse(readFileSync(resolve('package.json'), 'utf-8')).version;
+const XP_PER_KILL = 2.86;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -354,9 +355,9 @@ try {
     `orbs=${still.orbs} kills=${still.kills} xp=${Math.round(still.xp)}`,
   );
   check(
-    still.xp < still.kills * 2.3,
+    still.xp < still.kills * XP_PER_KILL * 0.75,
     'distant loot is not vacuumed into the player',
-    `collected ${Math.round(still.xp)} xp of ~${(still.kills * 3.2).toFixed(0)} dropped from ${still.kills} kills`,
+    `collected ${Math.round(still.xp)} xp of ~${(still.kills * XP_PER_KILL).toFixed(0)} dropped from ${still.kills} kills`,
   );
   await lootPage.screenshot({ path: join(SHOTS, '11-loot-on-ground.png') });
 
@@ -381,7 +382,7 @@ try {
   const swept = await readHud(lootPage);
   const gained = totalXp(swept) - totalXp(still);
   const gainedKills = swept.kills - still.kills;
-  const ratio = gained / Math.max(1, gainedKills * 3.2);
+  const ratio = gained / Math.max(1, gainedKills * XP_PER_KILL);
   check(
     ratio > 0.6,
     'orbs entering the pickup ring are collected while moving',

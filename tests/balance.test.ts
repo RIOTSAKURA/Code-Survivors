@@ -140,12 +140,26 @@ describe('enemy scaling', () => {
   });
 });
 
-describe('dropped loot lifetime', () => {
+describe('dropped loot', () => {
   it('expires unpicked loot but warns before doing so', () => {
     expect(ORB.lifetime).toBeGreaterThan(10);
     expect(ORB.blinkTime).toBeGreaterThan(0);
     expect(ORB.blinkTime).toBeLessThan(ORB.lifetime);
     expect(ORB.bigLifetime).toBeGreaterThan(ORB.lifetime);
+  });
+
+  it('keeps rare orbs rare but worth grabbing', () => {
+    expect(ORB.rareChance).toBeGreaterThan(0);
+    expect(ORB.rareChance).toBeLessThan(0.05);
+    expect(ORB.rareMultiplier).toBeGreaterThan(1);
+  });
+
+  it('pays a boss a lot without handing over several free levels', () => {
+    const bossReward = ENEMY_DEFS.boss.xp * SPAWN.xpValueScale;
+    const normalKills = bossReward / (2.86);
+    expect(bossReward).toBeGreaterThan(200);
+    expect(bossReward).toBeLessThan(500);
+    expect(normalKills).toBeLessThan(140);
   });
 });
 

@@ -58,6 +58,8 @@ export const ORB = {
   lifetime: 20,
   bigLifetime: 35,
   blinkTime: 7,
+  rareChance: 0.03,
+  rareMultiplier: 3,
 };
 
 export const DEPTH = {

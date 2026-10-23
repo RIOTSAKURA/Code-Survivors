@@ -110,7 +110,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     speed: 40,
     damage: 20,
     radius: 52,
-    xp: 220,
+    xp: 132,
     unlockAt: Number.POSITIVE_INFINITY,
     weight: () => 0,
     phasing: false,

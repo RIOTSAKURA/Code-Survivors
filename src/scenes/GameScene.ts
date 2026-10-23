@@ -1070,7 +1070,7 @@ export class GameScene extends Phaser.Scene {
     const count = big ? 6 : this.rng.int(1, 3);
     const per = Math.max(0.5, (value * SPAWN.xpValueScale) / count);
     for (let i = 0; i < count; i++) {
-      const isBig = !big && this.rng.chance(0.09);
+      const isBig = !big && this.rng.chance(ORB.rareChance);
       const angle = this.rng.range(0, TAU);
       const speed = this.rng.range(40, 115);
       const sprite = this.images.acquire();
@@ -1084,7 +1084,7 @@ export class GameScene extends Phaser.Scene {
         y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        value: isBig ? per * 3 : per,
+        value: isBig ? per * ORB.rareMultiplier : per,
         big: isBig,
         life: (isBig ? ORB.bigLifetime : ORB.lifetime) * this.orbLifeScale,
         sprite,
