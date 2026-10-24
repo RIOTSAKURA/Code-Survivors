@@ -24,6 +24,8 @@ import {
   bombBlast,
   bombCount,
   bombDamage,
+  CLONE_DISTANCE,
+  CLONE_SPIN,
   cloneCooldown,
   cloneCount,
   cloneDamage,
@@ -37,8 +39,8 @@ import {
   orbitCount,
   orbitDamage,
   orbitRadius,
-  orbitSlotAngles,
   orbitSpin,
+  ringSlotAngles,
   rayCount,
   rayDamage,
   rayWidth,
@@ -109,6 +111,7 @@ export class GameScene extends Phaser.Scene {
   private lastPauseToggle = -1000;
   private panelOpen = false;
   private orbitPhase = 0;
+  private clonePhase = 0;
   private orbiterSeq = 0;
   private orbLifeScale = 1;
   private entrance: BossEntrance | null = null;
@@ -143,6 +146,7 @@ export class GameScene extends Phaser.Scene {
     this.lastPauseToggle = -1000;
     this.panelOpen = false;
     this.orbitPhase = 0;
+    this.clonePhase = 0;
     this.orbiterSeq = 0;
     this.orbLifeScale = this.readQaOrbLife();
     this.entrance = null;
@@ -899,7 +903,7 @@ export class GameScene extends Phaser.Scene {
       if (o.sprite) this.images.release(o.sprite);
     }
     this.orbitPhase = (this.orbitPhase + orbitSpin(level) * dt) % TAU;
-    const slots = orbitSlotAngles(count, this.orbitPhase);
+    const slots = ringSlotAngles(count, this.orbitPhase);
     while (this.orbiters.length < count) {
       const slot = this.orbiters.length;
       const sprite = this.images.acquire();
@@ -948,20 +952,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncClones(level: number, dt: number): void {
-    const want = cloneCount(level);
-    while (this.clones.length > want) {
+    const count = cloneCount(level);
+    while (this.clones.length > count) {
       const c = this.clones.pop()!;
       if (c.sprite) this.images.release(c.sprite);
     }
-    while (this.clones.length < want) {
-      const index = this.clones.length;
+    this.clonePhase = (this.clonePhase + CLONE_SPIN * dt) % TAU;
+    const slots = ringSlotAngles(count, this.clonePhase);
+    while (this.clones.length < count) {
+      const slot = this.clones.length;
       const sprite = this.images.acquire();
       sprite.setTexture('w_clone');
       sprite.setDepth(DEPTH.clone);
       sprite.setTint(PALETTE.purple);
       this.clones.push({
-        angle: (index / want) * TAU + Math.PI,
-        distance: 76,
+        angle: slots[slot],
+        distance: CLONE_DISTANCE,
         x: this.playerX,
         y: this.playerY,
         fireAt: 0.4,
@@ -973,7 +979,10 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < this.clones.length; i++) {
       const c = this.clones[i];
       c.damage = damage;
-      c.angle += 0.9 * dt;
+      let drift = slots[i] - c.angle;
+      while (drift > Math.PI) drift -= TAU;
+      while (drift < -Math.PI) drift += TAU;
+      c.angle += drift * Math.min(1, dt * 8);
       c.x = this.playerX + Math.cos(c.angle) * c.distance;
       c.y = this.playerY + Math.sin(c.angle) * c.distance;
       if (c.sprite) {

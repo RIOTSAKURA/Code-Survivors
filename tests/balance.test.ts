@@ -19,7 +19,7 @@ import {
   dartCount,
   dartDamage,
   orbitCount,
-  orbitSlotAngles,
+  ringSlotAngles,
   rayCount,
 } from '../src/data/weapons';
 
@@ -58,11 +58,11 @@ describe('weapon scaling', () => {
   });
 });
 
-describe('paren shield orbit layout', () => {
+describe('weapon ring layout (paren shield, recursive clone)', () => {
   it('spaces orbiters evenly on the circle for every count', () => {
     for (let count = 1; count <= 6; count++) {
       for (const phase of [0, 0.37, 1.9, 5.9, 12.4]) {
-        const angles = orbitSlotAngles(count, phase);
+        const angles = ringSlotAngles(count, phase);
         expect(angles).toHaveLength(count);
         const gaps = angles.map((a, i) => {
           const next = angles[(i + 1) % count];
@@ -77,14 +77,26 @@ describe('paren shield orbit layout', () => {
 
   it('never stacks two orbiters on the same spot', () => {
     for (let count = 2; count <= 6; count++) {
-      const angles = orbitSlotAngles(count, 2.2);
+      const angles = ringSlotAngles(count, 2.2);
       const mod = angles.map((a) => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2));
       expect(new Set(mod.map((m) => m.toFixed(6))).size).toBe(count);
     }
   });
 
+  it('keeps the clone ring even when the squad grows mid run', () => {
+    for (let count = 1; count <= 4; count++) {
+      const angles = ringSlotAngles(count, 0.42);
+      const gaps = angles.map((a, i) => {
+        let gap = angles[(i + 1) % count] - a;
+        while (gap <= 0) gap += Math.PI * 2;
+        return gap;
+      });
+      for (const gap of gaps) expect(gap).toBeCloseTo((Math.PI * 2) / count, 9);
+    }
+  });
+
   it('keeps the layout correct when the count grows mid run', () => {
-    const grown = [1, 2, 3, 4, 5, 6].map((c) => orbitSlotAngles(c, 1.1));
+    const grown = [1, 2, 3, 4, 5, 6].map((c) => ringSlotAngles(c, 1.1));
     for (const angles of grown) {
       const count = angles.length;
       const gaps = angles.map((a, i) => {

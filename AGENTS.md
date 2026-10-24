@@ -71,9 +71,9 @@ land in `screenshots/` (gitignored).
   speed must always beat the player's (`PLAYER.magnetCatchUp`) or a running player outruns loot that
   already entered the ring. Unpicked orbs expire (`ORB.lifetime` / `ORB.bigLifetime`) and blink for
   `ORB.blinkTime` beforehand, so the field cannot fill up permanently.
-- **Paren shield orbiters** take their angle from `orbitSlotAngles(count, phase)`. Never seed an
-  orbiter's angle from the count at creation time — that desynchronises the ring when the count
-  grows.
+- **Ring weapons (paren shield, recursive clone)** take their angles from `ringSlotAngles(count,
+  phase)` driven by one shared phase per weapon. Never seed an angle from the count at creation
+  time — that desynchronises the ring whenever the count grows.
 - **Boss entrances are cutscenes.** `spawnBoss` hands control to `entrance` (see `ENTRANCE` in
   config.ts) which freezes the whole simulation, pans the camera to the spawn point, materialises
   the boss and sweeps an EMP ring that purges every dropped orb and normal bug, then pans back and
