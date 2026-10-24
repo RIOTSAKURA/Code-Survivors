@@ -106,7 +106,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     label: 'SEGFAULT',
     color: 0xff2d55,
     scale: 64,
-    hp: 900,
+    hp: 2200,
     speed: 40,
     damage: 20,
     radius: 52,

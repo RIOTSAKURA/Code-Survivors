@@ -7,6 +7,7 @@ export type SfxName =
   | 'choose'
   | 'hurt'
   | 'boss'
+  | 'emp'
   | 'death';
 
 interface Voice {
@@ -37,8 +38,14 @@ const VOICES: Record<SfxName, Voice[]> = {
     { type: 'square', from: 150, to: 70, duration: 0.2, gain: 0.035, delay: 0.02 },
   ],
   boss: [
-    { type: 'sawtooth', from: 120, to: 55, duration: 0.7, gain: 0.07 },
-    { type: 'square', from: 240, to: 90, duration: 0.6, gain: 0.04, delay: 0.1 },
+    { type: 'sawtooth', from: 170, to: 38, duration: 1.15, gain: 0.09 },
+    { type: 'square', from: 330, to: 60, duration: 0.85, gain: 0.05, delay: 0.04 },
+    { type: 'sawtooth', from: 70, to: 32, duration: 1.4, gain: 0.07, delay: 0.14 },
+  ],
+  emp: [
+    { type: 'square', from: 1800, to: 110, duration: 0.45, gain: 0.055 },
+    { type: 'sine', from: 2600, to: 700, duration: 0.18, gain: 0.03 },
+    { type: 'sawtooth', from: 90, to: 38, duration: 0.7, gain: 0.06, delay: 0.06 },
   ],
   death: [
     { type: 'sawtooth', from: 400, to: 40, duration: 1.1, gain: 0.08 },

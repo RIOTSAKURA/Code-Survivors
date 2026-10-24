@@ -62,6 +62,62 @@ export const ORB = {
   rareMultiplier: 3,
 };
 
+import type { EnemyTypeId } from './core/types';
+
+export const BOSS = {
+  range: 1000,
+  barrage: {
+    every: 2.1,
+    bullets: 12,
+    speed: 200,
+    damage: 9,
+    sparseEvery: 3.8,
+    sparseBullets: 8,
+    sparseSpeed: 165,
+    sparseDamage: 8,
+  },
+  summon: {
+    openerVolleys: 3,
+    openerPerVolley: 7,
+    volleys: 3,
+    perVolley: 6,
+    volleyGap: 0.28,
+    every: 8.5,
+    heavyEvery: 10,
+    heavyVolleys: 2,
+    heavyPerVolley: 5,
+    pool2: ['race', 'race', 'race', 'memleak', 'memleak', 'memleak'] as EnemyTypeId[],
+    pool3: ['race', 'memleak', 'memleak', 'stack', 'stack'] as EnemyTypeId[],
+  },
+  spiral: {
+    every: 0.07,
+    shots: 16,
+    arms: 3,
+    turn: 0.34,
+    speed: 200,
+    damage: 10,
+    chance: 0.55,
+    ringEvery: 1.9,
+  },
+  ring: {
+    bullets: 14,
+    speedFast: 235,
+    speedSlow: 125,
+    damage: 9,
+  },
+};
+
+export const ENTRANCE = {
+  panMs: 420,
+  chargeMs: 240,
+  waveSpeed: 1900,
+  waveFloor: 600,
+  waveCeil: 1600,
+  holdMs: 160,
+  returnMs: 380,
+  ringEveryMs: 60,
+};
+
 export const DEPTH = {
   ground: -10,
   orb: 4,

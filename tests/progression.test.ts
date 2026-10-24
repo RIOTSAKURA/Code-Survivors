@@ -3,6 +3,7 @@ import { Rng } from '../src/core/rng';
 import { createRun } from '../src/core/state';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../src/data/passives';
 import { WEAPON_DEFS, WEAPON_IDS } from '../src/data/weapons';
+import { hud, syncHud } from '../src/core/state';
 import { applyUpgrade, pickChoices, toCard, xpForLevel } from '../src/systems/progression';
 
 describe('xp curve', () => {
@@ -115,18 +116,40 @@ describe('applyUpgrade', () => {
     expect(run.stats.splitChance).toBeCloseTo(0.15);
   });
 
-  it('extends max hp and heals on memory upgrade', () => {
-    const run = createRun();
-    run.hp = 40;
-    applyUpgrade(run, 'memory');
-    expect(run.stats.maxHp).toBe(120);
-    expect(run.hp).toBe(60);
+  it('extends max hp and heals exactly 20 from any hp state', () => {
+    for (const start of [100, 90, 55, 20, 1]) {
+      const run = createRun();
+      run.hp = start;
+      applyUpgrade(run, 'memory');
+      expect(run.stats.maxHp).toBe(120);
+      expect(run.hp).toBe(Math.min(120, start + 20));
+    }
   });
 
   it('never heals above the cap', () => {
     const run = createRun();
     applyUpgrade(run, 'memory');
     expect(run.hp).toBe(run.stats.maxHp);
+  });
+
+  it('stacks the heal across all five levels', () => {
+    const run = createRun();
+    run.hp = 10;
+    for (let i = 0; i < 5; i++) applyUpgrade(run, 'memory');
+    expect(run.stats.maxHp).toBe(200);
+    expect(run.hp).toBe(110);
+    const overflow = createRun();
+    for (let i = 0; i < 5; i++) applyUpgrade(overflow, 'memory');
+    expect(overflow.hp).toBe(200);
+  });
+
+  it('publishes the new cap to the hud', () => {
+    const run = createRun();
+    run.hp = 30;
+    applyUpgrade(run, 'memory');
+    syncHud(run, 10);
+    expect(hud.maxHp).toBe(120);
+    expect(hud.hp).toBe(50);
   });
 });
 

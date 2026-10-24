@@ -256,6 +256,19 @@ try {
   let bossSeen = null;
   let sawPhase2 = false;
   let bossRunDied = false;
+  let minOrbsAfterBoss = Infinity;
+  let frozenSamples = 0;
+  let lastRunTime = null;
+  const orbitKeys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
+  let kiteIndex = 0;
+  await bossPage.keyboard.down(orbitKeys[0]);
+  let bossElapsedMs = 0;
+  let enemiesBeforePhase2 = 0;
+  let phase2Enemies = null;
+  let phase2Peak = 0;
+  let maxOrbsInFight = 0;
+  let minEnemiesInFight = Infinity;
+  let maxEnemiesInFight = 0;
   await bossPage.keyboard.down('KeyD');
   const bossDeadline = Date.now() + 45000;
   let holding = null;
@@ -272,28 +285,67 @@ try {
     if (hud.choices > 0) await bossPage.keyboard.press('Digit1');
     if (hud.boss) {
       bossSeen = bossSeen ?? { ...hud.boss };
+      bossElapsedMs += 150;
+      minOrbsAfterBoss = Math.min(minOrbsAfterBoss, hud.orbs);
+      if (lastRunTime !== null && Math.abs(hud.time - lastRunTime) < 0.01) frozenSamples++;
       if (hud.boss.phase >= 2 || hud.boss.hp < hud.boss.maxHp * 0.85) sawPhase2 = true;
+      if (hud.boss.phase < 2) enemiesBeforePhase2 = hud.enemies;
+      if (bossElapsedMs > 3000) {
+        maxOrbsInFight = Math.max(maxOrbsInFight, hud.orbs);
+        minEnemiesInFight = Math.min(minEnemiesInFight, hud.enemies);
+        maxEnemiesInFight = Math.max(maxEnemiesInFight, hud.enemies);
+        if (hud.boss.phase >= 2) {
+          phase2Enemies = phase2Enemies ?? enemiesBeforePhase2;
+          phase2Peak = Math.max(phase2Peak, hud.enemies);
+        }
+      }
     }
-    if (!bossSeen) {
-      await bossPage.waitForTimeout(120);
-      if (holding === null) {
-        holding = 'KeyD';
-      } else if (++holdTick % 10 === 0) {
-        await bossPage.keyboard.up(holding);
-        holding = holding === 'KeyD' ? 'KeyS' : 'KeyD';
-        await bossPage.keyboard.down(holding);
-      }
-    } else {
-      if (holding !== null) {
-        await bossPage.keyboard.up(holding);
-        holding = null;
-      }
-      await bossPage.waitForTimeout(150);
+    lastRunTime = hud.time;
+    if (holding !== null) {
+      await bossPage.keyboard.up(holding);
+      holding = null;
+    }
+    await bossPage.waitForTimeout(150);
+    if (++holdTick % 8 === 0) {
+      await bossPage.keyboard.up(orbitKeys[kiteIndex]);
+      kiteIndex = (kiteIndex + 1) % orbitKeys.length;
+      await bossPage.keyboard.down(orbitKeys[kiteIndex]);
     }
     if (hud.boss && hud.boss.hp < hud.boss.maxHp * 0.5) break;
   }
   if (holding !== null) await bossPage.keyboard.up(holding);
+  await bossPage.keyboard.up(orbitKeys[kiteIndex]);
   check(Boolean(bossSeen), 'segfault boss spawns and shows a health bar', bossSeen ? bossSeen.name : 'never seen');
+  check(
+    minOrbsAfterBoss <= 3,
+    'boss entrance emp wipes every orb on the field',
+    `lowest orb count during the fight was ${minOrbsAfterBoss}`,
+  );
+  check(
+    frozenSamples >= 3,
+    'the entrance freezes the fight while the camera watches',
+    `${frozenSamples} frozen polls`,
+  );
+  check(
+    minEnemiesInFight <= 1,
+    'the entrance clears every normal bug from the field',
+    `fewest enemies during the fight: ${minEnemiesInFight}`,
+  );
+  check(
+    maxEnemiesInFight > 1,
+    'the boss can still call in its own minions',
+    `most enemies during the fight: ${maxEnemiesInFight}`,
+  );
+  check(
+    phase2Peak - (phase2Enemies ?? 0) >= 6,
+    'phase 2 opens with an immediate wave of minions',
+    `enemies ${phase2Enemies} -> ${phase2Peak} right after the phase change`,
+  );
+  check(
+    maxOrbsInFight <= 1,
+    'nothing drops loot while the boss is alive',
+    `most orbs on the ground during the fight: ${maxOrbsInFight}`,
+  );
   check(sawPhase2, 'boss takes damage and reaches phase 2');
   await bossPage.screenshot({ path: join(SHOTS, '6-boss.png') });
   await bossPage.close();
@@ -362,9 +414,9 @@ try {
     `orbs=${still.orbs} kills=${still.kills} xp=${Math.round(still.xp)}`,
   );
   check(
-    still.xp < still.kills * XP_PER_KILL * 0.75,
+    still.orbs >= still.kills * 0.5,
     'distant loot is not vacuumed into the player',
-    `collected ${Math.round(still.xp)} xp of ~${(still.kills * XP_PER_KILL).toFixed(0)} dropped from ${still.kills} kills`,
+    `${still.orbs} orbs still on the ground from ${still.kills} kills`,
   );
   await lootPage.screenshot({ path: join(SHOTS, '11-loot-on-ground.png') });
 

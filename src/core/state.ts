@@ -1,8 +1,9 @@
+import { PLAYER } from '../config';
 import type { RunState, Stats } from './types';
 
 export function createStats(): Stats {
   return {
-    maxHp: 100,
+    maxHp: PLAYER.maxHp,
     speed: 200,
     pickupRadius: 68,
     armor: 0,
@@ -61,6 +62,7 @@ export interface HudState {
   boss: BossHud | null;
   choices: number;
   orbs: number;
+  enemies: number;
 }
 
 export const hud: HudState = {
@@ -81,6 +83,7 @@ export const hud: HudState = {
   boss: null,
   choices: 0,
   orbs: 0,
+  enemies: 0,
 };
 
 export function syncHud(run: RunState, xpNeed: number): void {

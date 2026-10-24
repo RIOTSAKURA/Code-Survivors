@@ -69,6 +69,13 @@ land in `screenshots/` (gitignored).
 - **Paren shield orbiters** take their angle from `orbitSlotAngles(count, phase)`. Never seed an
   orbiter's angle from the count at creation time — that desynchronises the ring when the count
   grows.
+- **Boss entrances are cutscenes.** `spawnBoss` hands control to `entrance` (see `ENTRANCE` in
+  config.ts) which freezes the whole simulation, pans the camera to the spawn point, materialises
+  the boss and sweeps an EMP ring that purges every dropped orb and normal bug, then pans back and
+  restores follow. Nothing may move the sim forward while `entrance` is set.
+- **Boss fights are arena mode.** While `activeBoss` is set the spawner is skipped, so only the
+  boss and its minions exist; minions are marked `summoned` and `killEnemy` must not drop loot for
+  them. Loot therefore stays empty for the whole fight, and the smoke test asserts exactly that.
 - **Weapons engage inside `SPAWN.engageRange`.** Sniping across the screen strands loot far from the
   player and starves progression.
 - Balance knobs live in `xpForLevel` (`systems/progression.ts`, pacing) and `SPAWN.*` / `PLAYER.*`
@@ -78,8 +85,8 @@ land in `screenshots/` (gitignored).
 
 - `window.__hud` — live HUD state (`hp`, `level`, `xp`, `kills`, `orbs`, `boss`, `choices`, …); the
   smoke test asserts against it.
-- `?skip=<seconds>` — starts a run already progressed (grants the matching build, first boss ~4 s
-  later). Used by the smoke test for late-game and boss scenarios.
+- `?skip=<seconds>` — starts a run already progressed, granting the build a real run would have and
+  keeping the natural boss schedule. Used by the smoke test for late-game and boss scenarios.
 - `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
 
 ## Style

@@ -1,4 +1,15 @@
-import { PLAYER } from '../config';
+import { ORB, PLAYER } from '../config';
+
+export interface OrbTier {
+  big: boolean;
+  multiplier: number;
+}
+
+export function orbTier(bossDrop: boolean, roll: number): OrbTier {
+  if (bossDrop) return { big: true, multiplier: 1 };
+  const big = roll < ORB.rareChance;
+  return { big, multiplier: big ? ORB.rareMultiplier : 1 };
+}
 
 export interface Motion {
   vx: number;

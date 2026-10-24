@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DEPTH, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, WORLD } from '../config';
+import { BOSS, DEPTH, ENTRANCE, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, WORLD } from '../config';
 import { SpatialGrid, findNearestMany } from '../core/grid';
 import { applyTextResolution, setupWorldCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ImagePool } from '../core/pool';
@@ -45,8 +45,25 @@ import {
 } from '../data/weapons';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
 import { Fx } from '../systems/fx';
-import { dampOrbVelocity, homeOrbVelocity } from '../systems/loot';
+import { dampOrbVelocity, homeOrbVelocity, orbTier } from '../systems/loot';
 import { applyUpgrade, pickChoices, toCard, xpForLevel } from '../systems/progression';
+
+interface BossEntrance {
+  x: number;
+  y: number;
+  color: number;
+  sprite: Phaser.GameObjects.Image | null;
+  t: number;
+  materialised: boolean;
+  waveActive: boolean;
+  waveDone: boolean;
+  waveRadius: number;
+  waveMax: number;
+  ringAt: number;
+  holdAt: number;
+  returning: boolean;
+  returnEnd: number;
+}
 
 const MAX_ORBIT_SLOTS = 10;
 const TAU = Math.PI * 2;
@@ -94,6 +111,8 @@ export class GameScene extends Phaser.Scene {
   private orbitPhase = 0;
   private orbiterSeq = 0;
   private orbLifeScale = 1;
+  private entrance: BossEntrance | null = null;
+  private activeBoss: Enemy | null = null;
   private scratch: Enemy[] = [];
   private scratch2: Enemy[] = [];
   private targetScratch: Enemy[] = [];
@@ -126,6 +145,8 @@ export class GameScene extends Phaser.Scene {
     this.orbitPhase = 0;
     this.orbiterSeq = 0;
     this.orbLifeScale = this.readQaOrbLife();
+    this.entrance = null;
+    this.activeBoss = null;
     this.invulnUntil = 0;
     this.knockVx = 0;
     this.knockVy = 0;
@@ -219,6 +240,19 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.entrance) {
+      this.updateEntrance(dt);
+      this.fx.update(dt);
+      this.updateBeams(dt);
+      this.drawBeams();
+      this.pruneEntities();
+      this.syncGridToCamera();
+      hud.orbs = this.orbs.length;
+      hud.enemies = this.enemies.length;
+      syncHud(this.run, this.xpNeed);
+      return;
+    }
+
     if (this.choosing) {
       this.fx.update(dt);
       syncHud(this.run, this.xpNeed);
@@ -254,6 +288,7 @@ export class GameScene extends Phaser.Scene {
     this.fx.update(dt);
     this.pruneEntities();
     hud.orbs = this.orbs.length;
+    hud.enemies = this.enemies.length;
     this.drawBeams();
     this.updateCamera();
     this.checkLevelUp();
@@ -296,9 +331,13 @@ export class GameScene extends Phaser.Scene {
     bus.emit(EV.banner, { text: this.paused ? 'paused' : 'resumed', sub: '', ms: 700 });
   }
 
-  private updateCamera(): void {
+  private syncGridToCamera(): void {
     this.gridSprite.tilePositionX = this.cameras.main.scrollX;
     this.gridSprite.tilePositionY = this.cameras.main.scrollY;
+  }
+
+  private updateCamera(): void {
+    this.syncGridToCamera();
     const range = this.run.stats.pickupRadius;
     if (range !== this.lastRange) {
       this.lastRange = range;
@@ -491,43 +530,156 @@ export class GameScene extends Phaser.Scene {
 
   private updateBoss(e: Enemy, dt: number, dist: number): void {
     const phase = this.bossPhase(e);
-    e.castAt -= dt;
+    if (hud.boss && hud.boss.phase !== phase) {
+      hud.boss.phase = phase;
+      this.announceBossPhase(e, phase);
+    }
+    this.updateBossSummons(e, dt, phase);
+    if (phase === 1) this.bossBarrage(e, dt, dist, false);
+    else if (phase === 2) this.bossBarrage(e, dt, dist, true);
+    else this.bossSpiral(e, dt, dist);
+  }
+
+  private announceBossPhase(e: Enemy, phase: number): void {
+    e.castAt = 0;
+    e.spiralShots = 0;
+    if (phase === 2) {
+      e.summonQueue = BOSS.summon.openerVolleys;
+      e.summonSize = BOSS.summon.openerPerVolley;
+      e.summonAt = 0;
+    }
+    if (phase === 3) {
+      e.spiralShots = BOSS.spiral.shots;
+      e.spiralAt = 0;
+      e.spiralAngle = this.rng.range(0, TAU);
+    }
+    const subs = ['thread spawned · barrage online', 'core dumping · spawning workers', 'heap corrupted · spiral overload'];
+    this.cameras.main.flash(220, 255, 0, 64, false);
+    this.cameras.main.shake(320, 0.01);
+    this.fx.burst(e.x, e.y, phase === 3 ? PALETTE.cyan : PALETTE.red, 26, 340, 0.7, 1);
+    this.beams.push({
+      kind: 'ring',
+      x: e.x,
+      y: e.y,
+      angle: 0,
+      length: 40,
+      width: 5,
+      spread: 0,
+      color: phase === 3 ? PALETTE.cyan : PALETTE.red,
+      life: 0.5,
+      maxLife: 0.5,
+      grow: 8,
+    });
+    bus.emit('sfx', 'emp');
+    bus.emit(EV.banner, { text: `0xDEAD · PHASE ${phase}`, sub: subs[phase - 1] ?? '', ms: 1200 });
+  }
+
+  private updateBossSummons(e: Enemy, dt: number, phase: number): void {
     e.summonAt -= dt;
-    if (e.castAt <= 0 && dist < 900) {
-      e.castAt = phase === 3 ? 2.2 : phase === 2 ? 2.8 : 3.4;
-      const count = phase === 3 ? 18 : phase === 2 ? 14 : 10;
-      const offset = this.rng.range(0, TAU);
-      for (let i = 0; i < count; i++) {
-        const angle = offset + (i / count) * TAU;
-        this.spawnProjectile({
-          x: e.x,
-          y: e.y,
-          vx: Math.cos(angle) * 190,
-          vy: Math.sin(angle) * 190,
-          damage: 8 + phase * 2,
-          radius: 11,
-          life: 6,
-          pierce: 0,
-          hostile: true,
-          color: PALETTE.red,
-          texture: 'proj_bullet',
-          fuse: 0,
-          blast: 0,
-        });
-      }
-      this.fx.burst(e.x, e.y, PALETTE.red, 14, 240, 0.5, 0.9);
-      bus.emit(EV.banner, { text: `0xDEAD · PHASE ${phase}`, sub: phase === 1 ? 'thread spawned' : 'core dumping', ms: 900 });
+    const queued = e.summonQueue ?? 0;
+    if (queued > 0) {
+      if (e.summonAt > 0) return;
+      e.summonQueue = queued - 1;
+      e.summonAt = e.summonQueue > 0 ? BOSS.summon.volleyGap : BOSS.summon.every;
+      this.releaseMinions(e, e.summonSize ?? BOSS.summon.perVolley, phase);
+      return;
     }
-    if (phase >= 2 && e.summonAt <= 0) {
-      e.summonAt = phase === 3 ? 6.5 : 8.5;
-      const n = phase === 3 ? 8 : 5;
-      for (let i = 0; i < n; i++) {
-        const angle = this.rng.range(0, TAU);
-        const r = this.rng.range(50, 140);
-        this.spawnEnemy('syntax', e.x + Math.cos(angle) * r, e.y + Math.sin(angle) * r, true);
-      }
-      this.fx.burst(e.x, e.y, PALETTE.orange, 16, 260, 0.6, 0.9);
+    if (phase < 2 || e.summonAt > 0) return;
+    if (phase === 2) {
+      e.summonAt = BOSS.summon.every;
+      e.summonSize = BOSS.summon.perVolley;
+      e.summonQueue = BOSS.summon.volleys - 1;
+      this.releaseMinions(e, BOSS.summon.perVolley, phase);
+      return;
     }
+    e.summonAt = BOSS.summon.heavyEvery;
+    e.summonSize = BOSS.summon.heavyPerVolley;
+    e.summonQueue = BOSS.summon.heavyVolleys - 1;
+    this.releaseMinions(e, BOSS.summon.heavyPerVolley, phase);
+  }
+
+  private releaseMinions(e: Enemy, count: number, phase: number): void {
+    const pool = phase >= 3 ? BOSS.summon.pool3 : BOSS.summon.pool2;
+    for (let i = 0; i < count; i++) {
+      const angle = this.rng.range(0, TAU);
+      const r = this.rng.range(50, 150);
+      const minion = this.spawnEnemy(this.rng.pick(pool), e.x + Math.cos(angle) * r, e.y + Math.sin(angle) * r, true);
+      if (minion) minion.summoned = true;
+    }
+    this.fx.burst(e.x, e.y, PALETTE.orange, 16, 280, 0.6, 0.9);
+    bus.emit('sfx', 'explode');
+  }
+
+  private bossBarrage(e: Enemy, dt: number, dist: number, sparse: boolean): void {
+    e.castAt -= dt;
+    if (e.castAt > 0 || dist > BOSS.range) return;
+    const bullets = sparse ? BOSS.barrage.sparseBullets : BOSS.barrage.bullets;
+    const speed = sparse ? BOSS.barrage.sparseSpeed : BOSS.barrage.speed;
+    const damage = sparse ? BOSS.barrage.sparseDamage : BOSS.barrage.damage;
+    e.castAt = sparse ? BOSS.barrage.sparseEvery : BOSS.barrage.every;
+    const offset = this.rng.range(0, TAU);
+    for (let i = 0; i < bullets; i++) {
+      this.spawnBossBullet(e, offset + (i / bullets) * TAU, speed, damage, PALETTE.red);
+    }
+    this.fx.burst(e.x, e.y, PALETTE.red, 12, 240, 0.5, 0.9);
+  }
+
+  private bossSpiral(e: Enemy, dt: number, dist: number): void {
+    const shots = e.spiralShots ?? 0;
+    if (shots > 0) {
+      e.spiralAt = (e.spiralAt ?? 0) - dt;
+      if (e.spiralAt > 0) return;
+      e.spiralAt = BOSS.spiral.every;
+      e.spiralShots = shots - 1;
+      e.spiralAngle = (e.spiralAngle ?? 0) + BOSS.spiral.turn;
+      for (let arm = 0; arm < BOSS.spiral.arms; arm++) {
+        this.spawnBossBullet(
+          e,
+          e.spiralAngle + (arm / BOSS.spiral.arms) * TAU,
+          BOSS.spiral.speed,
+          BOSS.spiral.damage,
+          PALETTE.cyan,
+        );
+      }
+      return;
+    }
+    e.castAt -= dt;
+    if (e.castAt > 0 || dist > BOSS.range) return;
+    e.castAt = BOSS.spiral.ringEvery;
+    if (this.rng.chance(BOSS.spiral.chance)) {
+      e.spiralShots = BOSS.spiral.shots;
+      e.spiralAt = 0;
+      e.spiralAngle = this.rng.range(0, TAU);
+      this.fx.burst(e.x, e.y, PALETTE.cyan, 20, 320, 0.6, 1);
+      this.cameras.main.shake(220, 0.007);
+      bus.emit('sfx', 'emp');
+      return;
+    }
+    const offset = this.rng.range(0, TAU);
+    for (let i = 0; i < BOSS.ring.bullets; i++) {
+      const angle = offset + (i / BOSS.ring.bullets) * TAU;
+      this.spawnBossBullet(e, angle, BOSS.ring.speedFast, BOSS.ring.damage, PALETTE.red);
+      this.spawnBossBullet(e, angle, BOSS.ring.speedSlow, BOSS.ring.damage, PALETTE.purple);
+    }
+    this.fx.burst(e.x, e.y, PALETTE.purple, 18, 300, 0.55, 0.95);
+  }
+
+  private spawnBossBullet(e: Enemy, angle: number, speed: number, damage: number, color: number): void {
+    this.spawnProjectile({
+      x: e.x,
+      y: e.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      damage,
+      radius: 11,
+      life: 7,
+      pierce: 0,
+      hostile: true,
+      color,
+      texture: 'proj_bullet',
+      fuse: 0,
+      blast: 0,
+    });
   }
 
   private updateWeapons(dt: number): void {
@@ -1057,27 +1209,27 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private dropOrbs(x: number, y: number, value: number, big: boolean): void {
-    const count = big ? 6 : this.rng.int(1, 3);
+  private dropOrbs(x: number, y: number, value: number, bossDrop: boolean): void {
+    const count = bossDrop ? 6 : this.rng.int(1, 3);
     const per = Math.max(0.5, (value * SPAWN.xpValueScale) / count);
     for (let i = 0; i < count; i++) {
-      const isBig = !big && this.rng.chance(ORB.rareChance);
+      const tier = orbTier(bossDrop, this.rng.next());
       const angle = this.rng.range(0, TAU);
       const speed = this.rng.range(40, 115);
       const sprite = this.images.acquire();
       sprite.setTexture(this.rng.chance(0.5) ? 'orb_0' : 'orb_1');
-      sprite.setTint(isBig ? PALETTE.cyan : PALETTE.green);
+      sprite.setTint(tier.big ? PALETTE.cyan : PALETTE.green);
       sprite.setDepth(DEPTH.orb);
-      sprite.setScale(isBig ? 1.35 * TEX_SCALE : TEX_SCALE);
+      sprite.setScale((tier.big ? 1.35 : 1) * TEX_SCALE);
       sprite.setPosition(x, y);
       this.orbs.push({
         x,
         y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        value: isBig ? per * ORB.rareMultiplier : per,
-        big: isBig,
-        life: (isBig ? ORB.bigLifetime : ORB.lifetime) * this.orbLifeScale,
+        value: per * tier.multiplier,
+        big: tier.big,
+        life: (tier.big ? ORB.bigLifetime : ORB.lifetime) * this.orbLifeScale,
         sprite,
         dead: false,
       });
@@ -1109,9 +1261,10 @@ export class GameScene extends Phaser.Scene {
     this.run.kills += 1;
     const def = ENEMY_DEFS[e.type];
     this.fx.burst(e.x, e.y, e.color, e.boss ? 44 : e.elite ? 14 : 8, e.boss ? 380 : 200, 0.6, e.boss ? 1.3 : 0.75);
-    this.dropOrbs(e.x, e.y, e.xp, e.boss);
+    if (!e.summoned) this.dropOrbs(e.x, e.y, e.xp, e.boss);
     bus.emit('sfx', e.boss ? 'explode' : 'hit');
     if (e.boss) {
+      this.activeBoss = null;
       hud.boss = null;
       this.cameras.main.shake(500, 0.012);
       bus.emit(EV.banner, { text: 'CORE DUMPED', sub: `${def.name} terminated`, ms: 1600 });
@@ -1120,9 +1273,14 @@ export class GameScene extends Phaser.Scene {
 
   private updateSpawner(dt: number): void {
     const time = this.run.time;
+    const bossAlive = this.activeBoss !== null;
     if (time >= this.nextBossAt) {
       this.nextBossAt += SPAWN.bossEvery;
-      this.spawnBoss();
+      if (!bossAlive) this.spawnBoss();
+    }
+    if (bossAlive) {
+      this.spawnTimer = 0;
+      return;
     }
     if (this.enemies.length >= SPAWN.maxEnemies) {
       this.spawnTimer = 0;
@@ -1170,6 +1328,7 @@ export class GameScene extends Phaser.Scene {
       glyph: def.glyph,
       boss: false,
       elite,
+      summoned: false,
       phasing: def.phasing,
       dead: false,
       sprite,
@@ -1194,7 +1353,7 @@ export class GameScene extends Phaser.Scene {
   private spawnBoss(): void {
     const time = this.run.time;
     const def = ENEMY_DEFS.boss;
-    const pos = this.ringPosition();
+    const pos = this.ringPosition(18);
     if (!pos) return;
     this.bossGeneration += 1;
     const scale = (1 + (this.bossGeneration - 1) * 0.65) * (1 + time / 600);
@@ -1221,32 +1380,178 @@ export class GameScene extends Phaser.Scene {
       glyph: def.glyph,
       boss: true,
       elite: false,
+      summoned: false,
       phasing: false,
       dead: false,
       sprite,
       hitAt: -10,
       touchAt: 0,
-      castAt: 3.4,
-      summonAt: 8.5,
+      castAt: 1.4,
+      summonAt: 4.5,
       growT: 0,
       orbitHit: new Array<number>(MAX_ORBIT_SLOTS).fill(-10),
       knockX: 0,
       knockY: 0,
     };
     this.enemies.push(boss);
+    this.activeBoss = boss;
     hud.boss = { name: def.name, hp, maxHp: hp, phase: 1 };
-    bus.emit('sfx', 'boss');
+    this.beginBossEntrance(boss, pos.x, pos.y, def.color);
+  }
+
+  private beginBossEntrance(boss: Enemy, x: number, y: number, color: number): void {
+    const sprite = boss.sprite;
+    if (sprite) {
+      sprite.setAlpha(0);
+      sprite.setScale(0.2 * TEX_SCALE);
+    }
+    let waveMax = ENTRANCE.waveFloor;
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (o.dead) continue;
+      waveMax = Math.max(waveMax, Math.hypot(o.x - x, o.y - y) + 80);
+    }
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e.dead || e.boss) continue;
+      waveMax = Math.max(waveMax, Math.hypot(e.x - x, e.y - y) + 80);
+    }
+    const cam = this.cameras.main;
+    cam.stopFollow();
+    cam.pan(x, y, ENTRANCE.panMs, 'Sine.easeInOut');
+    this.entrance = {
+      x,
+      y,
+      color,
+      sprite,
+      t: 0,
+      materialised: false,
+      waveActive: false,
+      waveDone: false,
+      waveRadius: 0,
+      waveMax: Math.min(waveMax, ENTRANCE.waveCeil),
+      ringAt: 0,
+      holdAt: 0,
+      returning: false,
+      returnEnd: 0,
+    };
     bus.emit(EV.banner, {
       text: 'FATAL: SEGFAULT',
-      sub: '0xDEAD has entered the runtime',
-      ms: 2200,
+      sub: '0xDEAD is booting · binary field will be purged',
+      ms: 3000,
     });
   }
 
-  private ringPosition(): { x: number; y: number } | null {
+  private updateEntrance(dt: number): void {
+    const e = this.entrance;
+    if (!e) return;
+    e.t += dt * 1000;
+
+    if (!e.materialised && e.t >= ENTRANCE.panMs) {
+      e.materialised = true;
+      if (e.sprite) {
+        this.tweens.add({
+          targets: e.sprite,
+          scale: TEX_SCALE,
+          alpha: 1,
+          duration: 220,
+          ease: 'Back.out',
+        });
+      }
+      const cam = this.cameras.main;
+      cam.flash(170, 255, 0, 64, false);
+      cam.shake(520, 0.015);
+      hud.damageFlash = 1;
+      this.fx.burst(e.x, e.y, e.color, 30, 460, 0.85, 1.1);
+      this.fx.burst(e.x, e.y, PALETTE.white, 14, 260, 0.6, 0.9);
+      bus.emit('sfx', 'boss');
+    }
+
+    if (e.materialised && !e.waveActive && !e.waveDone && e.t >= ENTRANCE.panMs + ENTRANCE.chargeMs) {
+      e.waveActive = true;
+      e.waveRadius = 0;
+      e.ringAt = 0;
+      hud.damageFlash = 1;
+      bus.emit('sfx', 'emp');
+    }
+
+    if (e.waveActive) {
+      e.waveRadius += ENTRANCE.waveSpeed * dt;
+      this.purgeLootWithin(e.x, e.y, e.waveRadius);
+      this.purgeEnemiesWithin(e.x, e.y, e.waveRadius);
+      e.ringAt -= dt * 1000;
+      if (e.ringAt <= 0) {
+        e.ringAt = ENTRANCE.ringEveryMs;
+        this.beams.push({
+          kind: 'ring',
+          x: e.x,
+          y: e.y,
+          angle: 0,
+          length: e.waveRadius,
+          width: 4,
+          spread: 0,
+          color: PALETTE.cyan,
+          life: 0.32,
+          maxLife: 0.32,
+          grow: 0.12,
+        });
+      }
+      if (e.waveRadius >= e.waveMax) {
+        e.waveActive = false;
+        e.waveDone = true;
+        this.purgeLootWithin(e.x, e.y, Number.POSITIVE_INFINITY);
+        this.purgeEnemiesWithin(e.x, e.y, Number.POSITIVE_INFINITY);
+        e.holdAt = e.t;
+        e.returnEnd = e.t + ENTRANCE.holdMs + ENTRANCE.returnMs;
+        this.fx.burst(e.x, e.y, PALETTE.cyan, 22, 320, 0.6, 0.9);
+        bus.emit(EV.banner, { text: 'FIELD PURGED', sub: 'binary wiped · back to the fight', ms: 1100 });
+      }
+    }
+
+    if (e.waveDone && !e.returning && e.t >= e.holdAt + ENTRANCE.holdMs) {
+      e.returning = true;
+      this.cameras.main.pan(this.playerX, this.playerY, ENTRANCE.returnMs, 'Sine.easeInOut');
+    }
+
+    if (e.returning && e.t >= e.returnEnd) {
+      this.cameras.main.startFollow(this.playerSprite, true, 0.12, 0.12);
+      this.entrance = null;
+    }
+  }
+
+  private purgeEnemiesWithin(x: number, y: number, radius: number): void {
+    const r2 = radius * radius;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e.dead || e.boss) continue;
+      const dx = e.x - x;
+      const dy = e.y - y;
+      if (dx * dx + dy * dy > r2) continue;
+      e.dead = true;
+      this.fx.burst(e.x, e.y, e.color, 6, 210, 0.5, 0.7);
+    }
+  }
+
+  private purgeLootWithin(x: number, y: number, radius: number): void {
+    const r2 = radius * radius;
+    let purged = false;
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (o.dead) continue;
+      const dx = o.x - x;
+      const dy = o.y - y;
+      if (dx * dx + dy * dy > r2) continue;
+      o.dead = true;
+      purged = true;
+      this.fx.burst(o.x, o.y, o.big ? PALETTE.cyan : PALETTE.green, 3, 110, 0.3, 0.45);
+    }
+    if (purged) hud.orbs = this.orbs.length > 0 ? this.orbs.length : 0;
+  }
+
+  private ringPosition(pad = SPAWN.ringPadding): { x: number; y: number } | null {
     const cam = this.cameras.main;
-    const halfW = viewWidth(cam) / 2 + SPAWN.ringPadding;
-    const halfH = viewHeight(cam) / 2 + SPAWN.ringPadding;
+    const halfW = viewWidth(cam) / 2 + pad;
+    const halfH = viewHeight(cam) / 2 + pad;
     const margin = 40;
     for (let attempt = 0; attempt < 8; attempt++) {
       const angle = this.rng.range(0, TAU);
@@ -1301,12 +1606,19 @@ export class GameScene extends Phaser.Scene {
         g.moveTo(b.x, b.y);
         g.lineTo(b.x + cos * b.length, b.y + sin * b.length);
         g.strokePath();
+      } else if (b.kind === 'ring') {
+        const radius = b.length * (1 + (b.grow ?? 0) * (1 - t));
+        g.lineStyle(Math.max(1, b.width * t), b.color, 0.9 * t);
+        g.strokeCircle(b.x, b.y, radius);
+        g.lineStyle(Math.max(1, b.width * 0.4 * t), PALETTE.white, 0.55 * t);
+        g.strokeCircle(b.x, b.y, radius * 0.985);
       } else {
         const points: Phaser.Geom.Point[] = [new Phaser.Geom.Point(b.x, b.y)];
         const steps = Math.max(6, Math.ceil((b.spread / TAU) * 26));
+        const radius = b.length * (1 + (b.grow ?? 0) * (1 - t));
         for (let i = 0; i <= steps; i++) {
           const a = b.angle - b.spread / 2 + (b.spread * i) / steps;
-          points.push(new Phaser.Geom.Point(b.x + Math.cos(a) * b.length, b.y + Math.sin(a) * b.length));
+          points.push(new Phaser.Geom.Point(b.x + Math.cos(a) * radius, b.y + Math.sin(a) * radius));
         }
         g.fillStyle(b.color, 0.28 * t);
         g.fillPoints(points, true);

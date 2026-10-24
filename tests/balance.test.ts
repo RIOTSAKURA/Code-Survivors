@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ORB, PLAYER, SPAWN } from '../src/config';
+import { BOSS, ORB, PLAYER, SPAWN } from '../src/config';
 import {
   ENEMY_DEFS,
   SPAWN_POOL,
@@ -169,6 +169,31 @@ describe('dropped loot', () => {
     expect(bossReward).toBeGreaterThan(200);
     expect(bossReward).toBeLessThan(500);
     expect(normalKills).toBeLessThan(140);
+  });
+});
+
+describe('boss minion waves', () => {
+  it('never summons the weakest bug, only sturdier kinds', () => {
+    for (const pool of [BOSS.summon.pool2, BOSS.summon.pool3]) {
+      expect(pool).not.toContain('syntax');
+      expect(pool.length).toBeGreaterThan(0);
+      for (const id of pool) {
+        expect(ENEMY_DEFS[id].hp).toBeGreaterThan(ENEMY_DEFS.syntax.hp);
+        expect(ENEMY_DEFS[id].damage).toBeGreaterThanOrEqual(ENEMY_DEFS.syntax.damage);
+      }
+    }
+  });
+
+  it('opens phase 2 with a bigger wave than the steady cycle', () => {
+    const opener = BOSS.summon.openerVolleys * BOSS.summon.openerPerVolley;
+    const cycle = BOSS.summon.volleys * BOSS.summon.perVolley;
+    expect(opener).toBeGreaterThanOrEqual(cycle);
+    expect(opener).toBeGreaterThanOrEqual(15);
+  });
+
+  it('sends the toughest bugs only once the boss is nearly dead', () => {
+    expect(BOSS.summon.pool2).not.toContain('stack');
+    expect(BOSS.summon.pool3).toContain('stack');
   });
 });
 

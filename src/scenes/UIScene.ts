@@ -392,9 +392,12 @@ export class UIScene extends Phaser.Scene {
   }
 
   private showBanner(payload: BannerPayload): void {
+    const fatal = payload.text.includes('FATAL');
     this.bannerText.setText(payload.text);
     this.bannerSub.setText(payload.sub);
-    this.bannerText.setColor(payload.text.includes('FATAL') ? '#ff0040' : '#00ffff');
+    this.bannerText.setFontSize(fatal ? 40 : 26);
+    this.bannerSub.setFontSize(fatal ? 16 : 14);
+    this.bannerText.setColor(fatal ? '#ff0040' : '#00ffff');
     this.bannerTimer = (payload.ms ?? 1200) / 1000;
     this.bannerText.setAlpha(1);
     this.bannerSub.setAlpha(1);

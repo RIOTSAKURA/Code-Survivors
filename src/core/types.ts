@@ -57,6 +57,7 @@ export interface Enemy {
   glyph: string;
   boss: boolean;
   elite: boolean;
+  summoned: boolean;
   phasing: boolean;
   dead: boolean;
   sprite: Phaser.GameObjects.Image | null;
@@ -64,6 +65,11 @@ export interface Enemy {
   touchAt: number;
   castAt: number;
   summonAt: number;
+  summonQueue?: number;
+  summonSize?: number;
+  spiralShots?: number;
+  spiralAt?: number;
+  spiralAngle?: number;
   growT: number;
   orbitHit: number[];
   knockX: number;
@@ -138,7 +144,7 @@ export interface Particle {
 }
 
 export interface Beam {
-  kind: 'ray' | 'cone';
+  kind: 'ray' | 'cone' | 'ring';
   x: number;
   y: number;
   angle: number;
@@ -148,4 +154,5 @@ export interface Beam {
   color: number;
   life: number;
   maxLife: number;
+  grow?: number;
 }
