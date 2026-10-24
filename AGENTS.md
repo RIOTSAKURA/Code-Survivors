@@ -19,14 +19,26 @@ land in `screenshots/` (gitignored).
 
 ## Release and commit conventions
 
-- **A bug fix is ONE commit that also bumps the version. Never add a separate
+- **One commit per change, and it carries the version bump itself. Never add a separate
   `chore: release ...` commit.**
+- Which bump a change gets:
+
+  | Change | Bump | Subject shape |
+  | --- | --- | --- |
+  | New content the player can meet or pick: enemy, weapon, passive, scene, mechanic | minor | `feat: add <content> (vX.Y.0)` |
+  | Defect fix in shipped behaviour | patch | `fix: <what was wrong> (vX.Y.Z)` |
+  | Retuning existing numbers, docs, tooling, tests, cosmetics — no new content | none | `chore: retune <thing>` |
+
+  A fix to something that was never released (a defect inside an unreleased feature committed in the
+  same batch) is folded into that feature's commit and the message describes the feature, not the fix.
+  When a batch mixes a feature with tuning, the feature decides the bump and the body mentions the
+  tuning briefly.
 - Release flow:
 
   ```bash
-  npm version patch --no-git-tag-version   # patch for fixes, minor for features
+  npm version minor --no-git-tag-version    # or patch for a fix-only commit
   npm run typecheck && npm test && npm run smoke
-  git add -A && git commit -m "fix: <what> (vX.Y.Z)" && git push
+  git add -A && git commit -m "feat: <what> (vX.Y.0)" && git push
   ```
 
 - The version shown in the page corner is read from `package.json` via the `__APP_VERSION__` Vite
