@@ -71,8 +71,16 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    const codex = this.add
+      .text(0, 108, '[ C ]  查阅图鉴 codex', {
+        fontFamily: MONO_FONT,
+        fontSize: '15px',
+        color: '#7f849c',
+      })
+      .setOrigin(0.5);
+
     const prompt = this.add
-      .text(0, 140, '[ ENTER / CLICK ]  npm start', {
+      .text(0, 152, '[ ENTER / CLICK ]  npm start', {
         fontFamily: MONO_FONT,
         fontSize: '22px',
         color: '#ffe066',
@@ -81,14 +89,14 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const modules = this.add
-      .text(0, 214, 'modules:  ;   ()   !   /regex/   //   fn()    ++  >>  []  {}  =>  T  ||  ~', {
+      .text(0, 220, 'modules:  ;   ()   !   /regex/   //   fn()    ++  >>  []  {}  =>  T  ||  ~', {
         fontFamily: MONO_FONT,
         fontSize: '13px',
         color: '#7f849c',
       })
       .setOrigin(0.5);
 
-    this.container.add([title, sub, controls, recordText, prompt, modules]);
+    this.container.add([title, sub, controls, recordText, codex, prompt, modules]);
 
     this.tweens.add({
       targets: prompt,
@@ -112,8 +120,15 @@ export class MenuScene extends Phaser.Scene {
       this.scene.start('Game');
       this.scene.launch('UI');
     };
+    const openCodex = () => {
+      sfx.unlock();
+      sfx.play('choose');
+      this.scene.start('Codex');
+    };
     this.input.keyboard!.once('keydown-ENTER', start);
     this.input.keyboard!.once('keydown-SPACE', start);
+    this.input.keyboard!.once('keydown-C', openCodex);
+    codex.setInteractive({ useHandCursor: true }).on('pointerdown', openCodex);
     this.input.once('pointerdown', start);
 
     applyTextResolution(this);

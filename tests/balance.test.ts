@@ -8,7 +8,7 @@ import {
   pickEnemyType,
   raceSprintFactor,
 } from '../src/data/enemies';
-import { PASSIVE_IDS } from '../src/data/passives';
+import { PASSIVE_DEFS, PASSIVE_IDS } from '../src/data/passives';
 import { createRun } from '../src/core/state';
 import { applyUpgrade } from '../src/systems/progression';
 import {
@@ -169,6 +169,27 @@ describe('dropped loot', () => {
     expect(bossReward).toBeGreaterThan(200);
     expect(bossReward).toBeLessThan(500);
     expect(normalKills).toBeLessThan(140);
+  });
+});
+
+describe('codex data', () => {
+  it('describes every weapon, enemy and passive for the in-game codex', () => {
+    for (const id of WEAPON_IDS) {
+      const def = WEAPON_DEFS[id];
+      expect(def.desc.length).toBeGreaterThan(4);
+      expect(def.symbol.length).toBeGreaterThan(0);
+      expect(def.tagline.length).toBeGreaterThan(0);
+    }
+    for (const id of [...SPAWN_POOL, 'boss'] as const) {
+      const def = ENEMY_DEFS[id];
+      expect(def.desc.length).toBeGreaterThan(4);
+      expect(def.glyph.length).toBeGreaterThan(0);
+    }
+    for (const id of PASSIVE_IDS) {
+      const def = PASSIVE_DEFS[id];
+      expect(def.desc.length).toBeGreaterThan(4);
+      expect(def.note.length).toBeGreaterThan(4);
+    }
   });
 });
 

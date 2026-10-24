@@ -4,6 +4,7 @@ import { sfx } from './core/audio';
 import type { SfxName } from './core/audio';
 import { bus, hud } from './core/state';
 import { BootScene } from './scenes/BootScene';
+import { CodexScene } from './scenes/CodexScene';
 import { GameScene } from './scenes/GameScene';
 import { MenuScene } from './scenes/MenuScene';
 import { UIScene } from './scenes/UIScene';
@@ -43,7 +44,7 @@ const game = new Phaser.Game({
     target: 60,
     forceSetTimeOut: false,
   },
-  scene: [BootScene, MenuScene, GameScene, UIScene],
+  scene: [BootScene, MenuScene, CodexScene, GameScene, UIScene],
 });
 
 const canvas = game.canvas;

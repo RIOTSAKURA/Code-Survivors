@@ -46,7 +46,8 @@ land in `screenshots/` (gitignored).
   tested.
 - `src/systems/` — `progression` (xp curve, upgrade draw/apply — pure), `loot` (orb homing/damping,
   simulated in unit tests), `fx` (particles, floaters).
-- `src/scenes/` — `BootScene` (generates every texture), `MenuScene`, `GameScene` (the simulation),
+- `src/scenes/` — `BootScene` (generates every texture), `MenuScene`, `CodexScene` (in-game codex that
+  renders straight from `data/`, so `desc` fields must stay populated), `GameScene` (the simulation),
   `UIScene` (HUD, upgrade panel, pause/game over overlays).
 - `scripts/smoke.mjs` — the end-to-end browser test.
 
@@ -88,6 +89,8 @@ land in `screenshots/` (gitignored).
 - `?skip=<seconds>` — starts a run already progressed, granting the build a real run would have and
   keeping the natural boss schedule. Used by the smoke test for late-game and boss scenarios.
 - `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
+- `window.__codex` — the open codex page (`{ page, pageIndex, entries }`) or undefined when closed;
+  set by `CodexScene` so the smoke test can assert the codex renders every entry.
 
 ## Style
 

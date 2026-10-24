@@ -105,11 +105,13 @@ const play = async (page, seconds, { move = true } = {}) => {
   const keys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   let index = 0;
   let lastSwitch = Date.now();
+  const from = await readHud(page);
+  const targetTime = from.time + seconds;
+  const deadline = Date.now() + seconds * 5000;
   if (move) await page.keyboard.down(keys[0]);
-  const deadline = Date.now() + seconds * 1000;
   while (Date.now() < deadline) {
     const hud = await readHud(page);
-    if (hud.gameOver) break;
+    if (hud.gameOver || hud.time >= targetTime) break;
     if (hud.choices > 0) await page.keyboard.press('Digit1');
     await page.waitForTimeout(100);
     if (move && Date.now() - lastSwitch > 900) {
@@ -151,6 +153,40 @@ try {
   });
   check(versionLabel?.text === `v${PKG_VERSION}`, 'version label matches package.json', String(versionLabel?.text));
   check(versionLabel?.bottomRight === true, 'version label sits in the bottom right corner');
+
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(600);
+  const codexWeapons = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('Digit2');
+  await page.waitForTimeout(300);
+  const codexBugs = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('Digit3');
+  await page.waitForTimeout(300);
+  const codexModules = await page.evaluate(() => window.__codex ?? null);
+  await page.screenshot({ path: join(SHOTS, '12-codex.png') });
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(500);
+  const codexClosed = await page.evaluate(() => window.__codex ?? null);
+  check(
+    codexWeapons?.entries === 6 && codexBugs?.entries === 6 && codexModules?.entries === 8,
+    'codex lists every weapon, bug and module',
+    `w=${codexWeapons?.entries} e=${codexBugs?.entries} p=${codexModules?.entries}`,
+  );
+  check(codexClosed === null, 'codex closes back to the menu');
+
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(500);
+  const codexReopened = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(300);
+  const codexPaged = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(400);
+  check(
+    codexReopened?.entries === 6 && codexPaged?.pageIndex === 1,
+    'codex opens again after closing (no stale scene state)',
+    `reopened=${codexReopened?.entries} paged=${codexPaged?.page}`,
+  );
 
   await page.keyboard.press('Enter');
   await page.waitForTimeout(1400);
@@ -385,13 +421,8 @@ try {
   await hidpiPage.waitForTimeout(1300);
   await hidpiPage.keyboard.press('Digit1');
   await hidpiPage.keyboard.down('KeyD');
-  const hidpiStart = Date.now();
-  while (Date.now() - hidpiStart < 12000) {
-    const hud = await readHud(hidpiPage);
-    if (hud.gameOver) break;
-    if (hud.choices > 0) await hidpiPage.keyboard.press('Digit1');
-    await hidpiPage.waitForTimeout(150);
-  }
+  await hidpiPage.keyboard.up('KeyD');
+  await play(hidpiPage, 12, { move: false });
   await hidpiPage.keyboard.up('KeyD');
   const hidpiFps = await readFps(hidpiPage);
   check(hidpiFps >= 30, 'frame rate healthy at dpr 2', `${hidpiFps} fps`);
@@ -406,7 +437,7 @@ try {
   await lootPage.keyboard.press('Enter');
   await lootPage.waitForTimeout(1400);
   await lootPage.keyboard.press('Digit1');
-  await lootPage.waitForTimeout(10000);
+  await play(lootPage, 10, { move: false });
   const still = await readHud(lootPage);
   check(
     still.orbs >= 10,
@@ -464,18 +495,9 @@ try {
   await expiryPage.keyboard.press('Enter');
   await expiryPage.waitForTimeout(1400);
   await expiryPage.keyboard.press('Digit1');
-  const holdStill = async (ms) => {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      const hud = await readHud(expiryPage);
-      if (hud.gameOver) return;
-      if (hud.choices > 0) await expiryPage.keyboard.press('Digit1');
-      await expiryPage.waitForTimeout(150);
-    }
-  };
-  await holdStill(14000);
+  await play(expiryPage, 14, { move: false });
   const rateStart = await readHud(expiryPage);
-  await holdStill(3000);
+  await play(expiryPage, 3, { move: false });
   const expired = await readHud(expiryPage);
   const killRate = (expired.kills - rateStart.kills) / 3;
   const bound = killRate * 3 * 3 + 8;

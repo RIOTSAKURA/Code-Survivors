@@ -8,6 +8,7 @@ export interface WeaponDef {
   name: string;
   symbol: string;
   tagline: string;
+  desc: string;
   color: number;
   maxLevel: number;
   cooldown: (level: number) => number;
@@ -57,6 +58,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '分号飞镖',
     symbol: ';',
     tagline: 'Semicolon Dart',
+    desc: '直线投射物，自动瞄准最近敌人',
     color: PALETTE.cyan,
     maxLevel: 8,
     cooldown: (l) => 0.95 - 0.06 * (l - 1),
@@ -69,6 +71,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '括号护盾',
     symbol: '()',
     tagline: 'Paren Shield',
+    desc: '括号环绕本体旋转，接触造成伤害与击退',
     color: PALETTE.blue,
     maxLevel: 8,
     cooldown: () => 0.28,
@@ -81,6 +84,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '感叹号炸弹',
     symbol: '!',
     tagline: 'Bang Bomb',
+    desc: '抛物线炸弹，落点范围爆炸（伤害随距离衰减）',
     color: PALETTE.orange,
     maxLevel: 8,
     cooldown: (l) => 2.6 - 0.16 * (l - 1),
@@ -92,6 +96,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '正则射线',
     symbol: '/regex/',
     tagline: 'Regex Ray',
+    desc: '全穿透激光，一条线上所有敌人一起吃伤害',
     color: PALETTE.green,
     maxLevel: 8,
     cooldown: (l) => 1.8 - 0.1 * (l - 1),
@@ -103,6 +108,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '注释屏障',
     symbol: '//',
     tagline: 'Comment Barrier',
+    desc: '前方扇形 AOE，一次清掉贴脸的一整片怪',
     color: PALETTE.textDim,
     maxLevel: 8,
     cooldown: (l) => 1.5 - 0.08 * (l - 1),
@@ -115,6 +121,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '递归克隆',
     symbol: 'fn()',
     tagline: 'Recursive Clone',
+    desc: '召唤环绕分身，自动向附近敌人射击',
     color: PALETTE.purple,
     maxLevel: 8,
     cooldown: () => 0,

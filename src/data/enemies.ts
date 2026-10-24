@@ -6,6 +6,7 @@ export interface EnemyDef {
   name: string;
   glyph: string;
   label: string;
+  desc: string;
   color: number;
   scale: number;
   hp: number;
@@ -24,6 +25,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Syntax Bug',
     glyph: '~',
     label: 'syntax',
+    desc: '直线追击玩家，数量最多的杂兵',
     color: PALETTE.red,
     scale: 26,
     hp: 7,
@@ -40,6 +42,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Null Pointer',
     glyph: 'null',
     label: 'null',
+    desc: '无视碰撞挤位、慢速穿行，会从怪堆里钻出来',
     color: PALETTE.textDim,
     scale: 24,
     hp: 22,
@@ -56,6 +59,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Memory Leak',
     glyph: '[]',
     label: 'leak',
+    desc: '持续膨胀变大，越大越慢但接触伤害越高',
     color: PALETTE.green,
     scale: 28,
     hp: 46,
@@ -72,6 +76,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Race Condition',
     glyph: '<<',
     label: 'race',
+    desc: '冲刺追击：全场最快基础移速，距离越远冲得越快',
     color: PALETTE.purple,
     scale: 26,
     hp: 18,
@@ -88,6 +93,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Stack Overflow',
     glyph: '{}',
     label: 'stack',
+    desc: '高血量慢速重甲，撞击会产生大量击退',
     color: 0xd9483a,
     scale: 40,
     hp: 210,
@@ -104,6 +110,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     name: 'Segfault',
     glyph: '0xDEAD',
     label: 'SEGFAULT',
+    desc: '每 115s 登场：镜头切到出场点、全场静止，并释放电磁脉冲清空地上所有经验球与普通敌人。存活期间不刷新普通敌人，只召唤不掉经验的小怪。三阶段：密集环形弹幕 → 大批小怪 + 降频弹幕 → 螺旋弹幕，击败掉落 6 个稀有球',
     color: 0xff2d55,
     scale: 64,
     hp: 2200,
