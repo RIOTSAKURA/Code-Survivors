@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS, ORB, PLAYER, SPAWN } from '../src/config';
+import { BOSS, ORB, PLAYER, SPAWN, THROWER } from '../src/config';
 import {
   ENEMY_DEFS,
   SPAWN_POOL,
@@ -181,6 +181,41 @@ describe('dropped loot', () => {
     expect(bossReward).toBeGreaterThan(200);
     expect(bossReward).toBeLessThan(500);
     expect(normalKills).toBeLessThan(140);
+  });
+});
+
+describe('throw exception (ranged bug)', () => {
+  it('joins the normal spawn pool in the early-mid game', () => {
+    expect(SPAWN_POOL).toContain('thrower');
+    expect(ENEMY_DEFS.thrower.unlockAt).toBeLessThanOrEqual(60);
+    const seen = new Set<string>();
+    for (let t = 40; t <= 140; t += 5) {
+      for (let i = 0; i < 40; i++) seen.add(pickEnemyType(t, i / 40));
+    }
+    expect(seen.has('thrower')).toBe(true);
+  });
+
+  it('never appears before it unlocks', () => {
+    for (let t = 0; t < ENEMY_DEFS.thrower.unlockAt; t += 3) {
+      for (let i = 0; i < 30; i++) expect(pickEnemyType(t, i / 30)).not.toBe('thrower');
+    }
+  });
+
+  it('stays a small slice of the swarm so melee plus barrage is survivable', () => {
+    for (const t of [40, 60, 120, 240, 360]) {
+      const total = SPAWN_POOL.reduce((sum, id) => sum + ENEMY_DEFS[id].weight(t), 0);
+      const share = ENEMY_DEFS.thrower.weight(t) / total;
+      expect(share).toBeGreaterThan(0.01);
+      expect(share).toBeLessThan(0.06);
+    }
+  });
+
+  it('holds a firing distance the player weapons can still reach', () => {
+    expect(THROWER.holdDistance).toBeGreaterThan(THROWER.retreatDistance);
+    expect(THROWER.holdDistance).toBeLessThanOrEqual(SPAWN.engageRange);
+    expect(THROWER.range).toBeGreaterThan(THROWER.holdDistance);
+    const volleyDps = (THROWER.bullets * THROWER.damage) / THROWER.castEvery;
+    expect(volleyDps).toBeLessThan(PLAYER.maxHp / 4);
   });
 });
 

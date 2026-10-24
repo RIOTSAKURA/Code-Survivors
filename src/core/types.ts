@@ -14,7 +14,7 @@ export type PassiveId =
 
 export type UpgradeId = WeaponId | PassiveId;
 
-export type EnemyTypeId = 'syntax' | 'nullptr' | 'memleak' | 'race' | 'stack' | 'boss';
+export type EnemyTypeId = 'syntax' | 'nullptr' | 'memleak' | 'race' | 'stack' | 'thrower' | 'boss';
 
 export interface Stats {
   maxHp: number;

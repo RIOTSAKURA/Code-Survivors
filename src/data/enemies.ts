@@ -105,6 +105,23 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     weight: (t) => (t > 150 ? 4 : t > 110 ? 2 : 0),
     phasing: false,
   },
+  thrower: {
+    id: 'thrower',
+    name: 'Throw Exception',
+    glyph: 'throw',
+    label: 'throw',
+    desc: '保持中距离游走并向玩家抛射扇形弹幕，不会贴身缠斗；靠近时会后撤，需要优先点掉',
+    color: PALETTE.yellow,
+    scale: 26,
+    hp: 26,
+    speed: 58,
+    damage: 8,
+    radius: 14,
+    xp: 3,
+    unlockAt: 35,
+    weight: () => 0.6,
+    phasing: false,
+  },
   boss: {
     id: 'boss',
     name: 'Segfault',
@@ -124,7 +141,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
   },
 };
 
-export const SPAWN_POOL: EnemyTypeId[] = ['syntax', 'nullptr', 'memleak', 'race', 'stack'];
+export const SPAWN_POOL: EnemyTypeId[] = ['syntax', 'nullptr', 'memleak', 'race', 'stack', 'thrower'];
 
 export function enemyHpScale(time: number, playerLevel: number): number {
   const minutes = time / 60;

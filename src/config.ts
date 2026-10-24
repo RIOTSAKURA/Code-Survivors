@@ -107,6 +107,18 @@ export const BOSS = {
   },
 };
 
+export const THROWER = {
+  holdDistance: 260,
+  retreatDistance: 200,
+  castEvery: 2.4,
+  castFirst: 1.8,
+  bullets: 3,
+  spread: 0.2,
+  speed: 165,
+  damage: 9,
+  range: 620,
+};
+
 export const ENTRANCE = {
   panMs: 420,
   chargeMs: 240,

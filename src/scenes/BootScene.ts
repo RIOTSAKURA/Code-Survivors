@@ -7,6 +7,7 @@ const ENEMY_TEXTURES: Array<[string, string, number]> = [
   ['e_memleak', '[]', 28],
   ['e_race', '<<', 26],
   ['e_stack', '{}', 38],
+  ['e_thrower', 'throw', 24],
   ['e_boss', '0xDEAD', 58],
 ];
 

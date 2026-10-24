@@ -185,7 +185,7 @@ try {
   await page.waitForTimeout(500);
   const codexClosed = await page.evaluate(() => window.__codex ?? null);
   check(
-    codexWeapons?.entries === 6 && codexBugs?.entries === 6 && codexModules?.entries === 8,
+    codexWeapons?.entries === 6 && codexBugs?.entries === 7 && codexModules?.entries === 8,
     'codex lists every weapon, bug and module',
     `w=${codexWeapons?.entries} e=${codexBugs?.entries} p=${codexModules?.entries}`,
   );
@@ -454,8 +454,9 @@ try {
   await lootPage.keyboard.press('Enter');
   await lootPage.waitForTimeout(1400);
   await lootPage.keyboard.press('Digit1');
-  await play(lootPage, 10, { move: false });
+  await play(lootPage, 7, { move: false });
   const still = await readHud(lootPage);
+  check(!still.gameOver, 'loot fixture survives its stand-off window', `hp=${Math.round(still.hp)}`);
   check(
     still.orbs >= 10,
     'killed loot stays on the ground until walked over',
@@ -506,16 +507,17 @@ try {
 
   const expiryPage = await context.newPage();
   expiryPage.on('pageerror', (e) => errors.push(`pageerror(expiry): ${e.message}`));
-  await expiryPage.goto(`http://localhost:${PORT}/?skip=120&orbLife=3`, { waitUntil: 'load' });
+  await expiryPage.goto(`http://localhost:${PORT}/?skip=25&orbLife=3`, { waitUntil: 'load' });
   await expiryPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
   await expiryPage.waitForTimeout(700);
   await expiryPage.keyboard.press('Enter');
   await expiryPage.waitForTimeout(1400);
   await expiryPage.keyboard.press('Digit1');
-  await play(expiryPage, 14, { move: false });
+  await play(expiryPage, 12, { move: false });
   const rateStart = await readHud(expiryPage);
   await play(expiryPage, 3, { move: false });
   const expired = await readHud(expiryPage);
+  check(!expired.gameOver, 'expiry fixture survives its measurement window', `hp=${Math.round(expired.hp)}`);
   const killRate = (expired.kills - rateStart.kills) / 3;
   const bound = killRate * 3 * 3 + 8;
   check(

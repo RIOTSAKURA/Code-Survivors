@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { BOSS, DEPTH, ENTRANCE, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, WORLD } from '../config';
+import { BOSS, DEPTH, ENTRANCE, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, THROWER, WORLD } from '../config';
 import { SpatialGrid, findNearestMany } from '../core/grid';
 import { applyTextResolution, setupWorldCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ImagePool } from '../core/pool';
@@ -415,6 +415,15 @@ export class GameScene extends Phaser.Scene {
         speed *= raceSprintFactor(dist);
         if (e.sprite) e.sprite.setAlpha(0.7 + 0.3 * Math.abs(Math.sin(time * 7 + e.id)));
       }
+      if (e.type === 'thrower') {
+        if (dist < THROWER.retreatDistance) speed = -speed * 0.75;
+        else if (dist < THROWER.holdDistance) speed *= 0.22;
+        e.castAt -= dt;
+        if (e.castAt <= 0 && dist < THROWER.range) {
+          e.castAt = THROWER.castEvery;
+          this.throwerVolley(e);
+        }
+      }
       if (e.boss) {
         speed *= 1 + (this.bossPhase(e) - 1) * 0.22;
       }
@@ -666,6 +675,30 @@ export class GameScene extends Phaser.Scene {
       this.spawnBossBullet(e, angle, BOSS.ring.speedSlow, BOSS.ring.damage, PALETTE.purple);
     }
     this.fx.burst(e.x, e.y, PALETTE.purple, 18, 300, 0.55, 0.95);
+  }
+
+  private throwerVolley(e: Enemy): void {
+    const base = Math.atan2(this.playerY - e.y, this.playerX - e.x);
+    for (let i = 0; i < THROWER.bullets; i++) {
+      const angle = base + (i - (THROWER.bullets - 1) / 2) * THROWER.spread;
+      this.spawnProjectile({
+        x: e.x,
+        y: e.y,
+        vx: Math.cos(angle) * THROWER.speed,
+        vy: Math.sin(angle) * THROWER.speed,
+        damage: THROWER.damage,
+        radius: 10,
+        life: 5,
+        pierce: 0,
+        hostile: true,
+        color: PALETTE.yellow,
+        texture: 'proj_bullet',
+        fuse: 0,
+        blast: 0,
+      });
+    }
+    this.fx.burst(e.x, e.y, PALETTE.yellow, 6, 150, 0.35, 0.6);
+    bus.emit('sfx', 'shoot');
   }
 
   private spawnBossBullet(e: Enemy, angle: number, speed: number, damage: number, color: number): void {
