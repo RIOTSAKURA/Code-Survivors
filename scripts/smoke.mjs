@@ -142,6 +142,16 @@ try {
     await page.evaluate(() => !document.getElementById('boot-hint')),
     'boot completes and menu renders',
   );
+  const favicon = await page.evaluate(() => {
+    const link = document.querySelector('link#favicon');
+    return { rel: link?.rel ?? '', href: (link?.href ?? '').slice(0, 22), bytes: link?.href.length ?? 0 };
+  });
+  check(
+    favicon.rel === 'icon' && favicon.href.startsWith('data:image/png') && favicon.bytes > 1000,
+    'tab icon is generated at runtime',
+    `${favicon.bytes} byte data url`,
+  );
+
   const versionLabel = await page.evaluate(() => {
     const el = document.getElementById('version');
     if (!el) return null;

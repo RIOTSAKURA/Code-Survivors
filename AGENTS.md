@@ -53,8 +53,8 @@ land in `screenshots/` (gitignored).
 
 ## Invariants that are easy to regress
 
-- **No external assets.** Every glyph, grid tile and glow is drawn on Canvas2D at boot; all sound is
-  WebAudio oscillators.
+- **No external assets.** Every glyph, grid tile and glow is drawn on Canvas2D at boot, the tab icon
+  is rendered to a data url the same way, and all sound is WebAudio oscillators.
 - **HiDPI.** Canvas backing store is `devicePixelRatio` × CSS size (capped at 2). Textures are
   generated at `DPR`, sprites must be drawn at `TEX_SCALE = 1/DPR`, cameras use `zoom = DPR`, and
   text objects need `setResolution(DPR)`. Keep WebGL MSAA off (`antialiasGL: false`): the 2×

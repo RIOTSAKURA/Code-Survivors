@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { DPR, PALETTE } from './config';
 import { sfx } from './core/audio';
+import { installFavicon } from './core/favicon';
 import type { SfxName } from './core/audio';
 import { bus, hud } from './core/state';
 import { BootScene } from './scenes/BootScene';
@@ -8,6 +9,8 @@ import { CodexScene } from './scenes/CodexScene';
 import { GameScene } from './scenes/GameScene';
 import { MenuScene } from './scenes/MenuScene';
 import { UIScene } from './scenes/UIScene';
+
+installFavicon();
 
 bus.on<SfxName>('sfx', (name) => sfx.play(name));
 
