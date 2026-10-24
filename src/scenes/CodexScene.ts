@@ -94,15 +94,22 @@ export class CodexScene extends Phaser.Scene {
       .setTileScale(TEX_SCALE, TEX_SCALE)
       .setAlpha(0.8);
 
+    const HEADER_GLOW = 14;
     const header = this.add
-      .text(48, 30, '▸ codex.md', {
+      .text(48 - (HEADER_GLOW + 8), 30 - (HEADER_GLOW + 4), '▸ codex.md', {
         fontFamily: MONO_FONT,
         fontSize: '26px',
         color: hex(PALETTE.cyan),
         fontStyle: 'bold',
+        padding: {
+          left: HEADER_GLOW + 8,
+          right: HEADER_GLOW + 8,
+          top: HEADER_GLOW + 4,
+          bottom: HEADER_GLOW + 4,
+        },
       })
       .setOrigin(0, 0);
-    header.setShadow(0, 0, hex(PALETTE.cyan), 14, true, true);
+    header.setShadow(0, 0, hex(PALETTE.cyan), HEADER_GLOW, true, true);
 
     this.tabTexts = PAGES.map((_, i) =>
       this.add.text(48 + i * 124, 72, '', {

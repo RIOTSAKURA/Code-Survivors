@@ -21,11 +21,11 @@ export class Fx {
   private images: ImagePool;
   private texts: TextPool;
 
-  constructor(scene: Phaser.Scene) {
-    this.images = new ImagePool(scene, 1100, DEPTH.particle, Phaser.BlendModes.ADD);
+  constructor(scene: Phaser.Scene, pool: { images?: number; texts?: number } = {}) {
+    this.images = new ImagePool(scene, pool.images ?? 1100, DEPTH.particle, Phaser.BlendModes.ADD);
     this.texts = new TextPool(
       scene,
-      70,
+      pool.texts ?? 70,
       { fontFamily: MONO_FONT, fontSize: '14px', color: '#ffffff', fontStyle: 'bold' },
       DEPTH.floater,
     );

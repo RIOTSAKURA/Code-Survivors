@@ -71,7 +71,7 @@ src/
     fx.ts                 粒子、飘字、代码字符碎裂特效
   scenes/
     BootScene.ts          生成所有贴图后进入菜单
-    MenuScene.ts          标题、操作说明、最高记录
+    MenuScene.ts          标题、操作说明、最高记录 + 背景虫群（两侧向中央进攻）
     CodexScene.ts         图鉴：武器 / 敌人 / 被动三页，数据直接取自 data/
     GameScene.ts          主循环：移动、武器、敌人 AI、刷怪、Boss、结算
     UIScene.ts            HUD、升级面板、暂停与结算界面

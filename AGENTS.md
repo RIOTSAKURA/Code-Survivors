@@ -60,6 +60,10 @@ land in `screenshots/` (gitignored).
   text objects need `setResolution(DPR)`. Keep WebGL MSAA off (`antialiasGL: false`): the 2×
   supersample is the anti-aliasing, and enabling MSAA dropped the target Intel iGPU from 60 to
   23 fps at 2880×1800.
+- **Glowing text needs padding.** Phaser sizes a `Text` canvas as the measured text plus its
+  `padding`, and ignores `shadowBlur`, so any `setShadow(...)` glow is clipped unless the style sets
+  padding at least as large as the blur (and the position is offset by that padding when the origin
+  is not centred).
 - **Keyboard input must use the event API** (`keyboard.on('keydown-P', ...)`), never
   `Phaser.Input.Keyboard.JustDown`: Phaser clears `_justDown` on keyup, so a fast tap is invisible to
   polling.
@@ -89,6 +93,8 @@ land in `screenshots/` (gitignored).
 - `?skip=<seconds>` — starts a run already progressed, granting the build a real run would have and
   keeping the natural boss schedule. Used by the smoke test for late-game and boss scenarios.
 - `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
+- `window.__menu` — `{ marchers, particles }` for the menu's background swarm, so the smoke test can
+  tell whether the animation is actually running.
 - `window.__codex` — the open codex page (`{ page, pageIndex, entries }`) or undefined when closed;
   set by `CodexScene` so the smoke test can assert the codex renders every entry.
 

@@ -142,6 +142,13 @@ try {
     await page.evaluate(() => !document.getElementById('boot-hint')),
     'boot completes and menu renders',
   );
+  const menuSwarm = await page.evaluate(() => window.__menu ?? null);
+  check(
+    (menuSwarm?.marchers ?? 0) >= 3,
+    'menu background spawns a bug swarm before the run starts',
+    `marchers=${menuSwarm?.marchers}`,
+  );
+
   const favicon = await page.evaluate(() => {
     const link = document.querySelector('link#favicon');
     return { rel: link?.rel ?? '', href: (link?.href ?? '').slice(0, 22), bytes: link?.href.length ?? 0 };
