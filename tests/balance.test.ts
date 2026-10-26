@@ -7,6 +7,8 @@ import {
   enemySpeedScale,
   pickEnemyType,
   raceSprintFactor,
+  spawnRamp,
+  spawnRate,
 } from '../src/data/enemies';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../src/data/passives';
 import { createRun } from '../src/core/state';
@@ -147,11 +149,62 @@ describe('enemy scaling', () => {
   });
 
   it('ramps pressure without exploding', () => {
-    const rate = (t: number) => Math.min(SPAWN.rateMax, SPAWN.rateBase + t * SPAWN.rateGrowth);
-    expect(rate(0)).toBeLessThan(3);
-    expect(rate(1800)).toBe(SPAWN.rateMax);
-    expect(rate(60)).toBeLessThan(rate(300));
+    expect(spawnRate(0)).toBeLessThan(3);
+    expect(spawnRate(1800)).toBe(SPAWN.rateMax);
+    expect(spawnRate(60)).toBeLessThan(spawnRate(300));
     expect(SPAWN.maxEnemies).toBeGreaterThan(100);
+  });
+
+  it('eases the opening hardest and settles at a gentler long run ceiling', () => {
+    const unclamped = (t: number) => SPAWN.rateBase + t * SPAWN.rateGrowth;
+    const at = (t: number) => spawnRate(t) / unclamped(t);
+    expect(spawnRate(0)).toBeLessThan(unclamped(0) * 0.7);
+    expect(spawnRate(0)).toBeLessThan(1.2);
+    expect(spawnRate(30)).toBeLessThan(unclamped(30) * 0.8);
+    expect(spawnRate(60)).toBeLessThan(unclamped(60));
+    expect(at(200)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    expect(at(300)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    expect(at(500)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    expect(at(0)).toBeCloseTo(SPAWN.rateRampFloor, 6);
+    expect(at(0)).toBeLessThan(at(60));
+    expect(at(60)).toBeLessThan(at(150));
+    expect(at(150)).toBeLessThan(at(200));
+  });
+
+  it('keeps the long run cut modest, never a flat global nerf', () => {
+    expect(SPAWN.rateRampCeil).toBeGreaterThan(0.8);
+    expect(SPAWN.rateRampCeil).toBeLessThanOrEqual(0.9);
+    expect(SPAWN.rateRampFloor).toBeLessThan(SPAWN.rateRampCeil);
+    for (const t of [200, 400, 800]) {
+      expect(spawnRamp(t)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    }
+  });
+
+  it('eases in smoothly, with no step in the slope', () => {
+    let previous = spawnRate(2) - spawnRate(0);
+    for (let t = 4; t <= SPAWN.rateRampTime + 20; t += 2) {
+      const step = spawnRate(t) - spawnRate(t - 2);
+      expect(Math.abs(step - previous)).toBeLessThan(0.02);
+      previous = step;
+    }
+  });
+
+  it('keeps the stretch after the first boss throttled too', () => {
+    expect(spawnRamp(60)).toBeLessThan(0.8);
+    expect(spawnRamp(SPAWN.bossFirstAt)).toBeLessThan(0.8);
+    expect(spawnRamp(150)).toBeLessThan(SPAWN.rateRampCeil);
+    expect(spawnRamp(150)).toBeGreaterThan(SPAWN.rateRampFloor);
+    expect(spawnRamp(SPAWN.rateRampTime)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    expect(spawnRamp(600)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+  });
+
+  it('never decreases the pressure as a run goes on', () => {
+    let previous = 0;
+    for (let t = 0; t <= 600; t += 5) {
+      const rate = spawnRate(t);
+      expect(rate).toBeGreaterThanOrEqual(previous);
+      previous = rate;
+    }
   });
 
   it('gives the player time to react before the first enemy can touch them', () => {

@@ -143,6 +143,16 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
 
 export const SPAWN_POOL: EnemyTypeId[] = ['syntax', 'nullptr', 'memleak', 'race', 'stack', 'thrower'];
 
+export function spawnRamp(time: number): number {
+  const u = Math.min(1, Math.max(0, time / SPAWN.rateRampTime));
+  const eased = u * u * (3 - 2 * u);
+  return SPAWN.rateRampFloor + (SPAWN.rateRampCeil - SPAWN.rateRampFloor) * eased;
+}
+
+export function spawnRate(time: number): number {
+  return Math.min(SPAWN.rateMax, (SPAWN.rateBase + time * SPAWN.rateGrowth) * spawnRamp(time));
+}
+
 export function enemyHpScale(time: number, playerLevel: number): number {
   const minutes = time / 60;
   return (

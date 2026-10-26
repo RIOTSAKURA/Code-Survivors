@@ -17,7 +17,14 @@ import type {
   UpgradeId,
   WeaponId,
 } from '../core/types';
-import { ENEMY_DEFS, enemyHpScale, enemySpeedScale, pickEnemyType, raceSprintFactor } from '../data/enemies';
+import {
+  ENEMY_DEFS,
+  enemyHpScale,
+  enemySpeedScale,
+  pickEnemyType,
+  raceSprintFactor,
+  spawnRate,
+} from '../data/enemies';
 import {
   WEAPON_DEFS,
   WEAPON_IDS,
@@ -1328,7 +1335,7 @@ export class GameScene extends Phaser.Scene {
       this.spawnTimer = 0;
       return;
     }
-    const rate = Math.min(SPAWN.rateMax, SPAWN.rateBase + time * SPAWN.rateGrowth);
+    const rate = spawnRate(time);
     this.spawnTimer += rate * dt;
     let budget = SPAWN.maxPerFrame;
     while (this.spawnTimer >= 1 && budget > 0) {
