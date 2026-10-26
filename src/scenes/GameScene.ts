@@ -1,5 +1,17 @@
 import Phaser from 'phaser';
-import { BOSS, DEPTH, ENTRANCE, ORB, PALETTE, PLAYER, SPAWN, TEX_SCALE, THROWER, WORLD } from '../config';
+import {
+  BOSS,
+  DEPTH,
+  ENTRANCE,
+  ORB,
+  PALETTE,
+  PLAYER,
+  SHIELD,
+  SPAWN,
+  TEX_SCALE,
+  THROWER,
+  WORLD,
+} from '../config';
 import { SpatialGrid, findNearestMany } from '../core/grid';
 import { applyTextResolution, setupWorldCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ImagePool } from '../core/pool';
@@ -55,6 +67,7 @@ import {
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
 import { Fx } from '../systems/fx';
 import { dampOrbVelocity, homeOrbVelocity, orbTier } from '../systems/loot';
+import { reflectBullet } from '../systems/shield';
 import { applyUpgrade, pickChoices, toCard, xpForLevel } from '../systems/progression';
 
 interface BossEntrance {
@@ -998,6 +1011,30 @@ export class GameScene extends Phaser.Scene {
         const d = Math.hypot(dx, dy) || 1;
         this.damageEnemy(e, o.damage, false, (dx / d) * 130, (dy / d) * 130);
       }
+      this.reflectAt(o.x, o.y);
+    }
+  }
+
+  private reflectAt(x: number, y: number): void {
+    const reach = SHIELD.reflectRadius * SHIELD.reflectRadius;
+    for (let i = 0; i < this.projectiles.length; i++) {
+      const p = this.projectiles[i];
+      if (p.dead || !p.hostile) continue;
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const distance = Math.hypot(dx, dy);
+      if (dx * dx + dy * dy > reach) continue;
+      const reflected = reflectBullet(distance, p);
+      if (!reflected) continue;
+      p.vx = reflected.vx;
+      p.vy = reflected.vy;
+      p.damage = reflected.damage;
+      p.hostile = false;
+      p.color = PALETTE.green;
+      p.life = Math.max(p.life, SHIELD.reflectMinLife);
+      if (p.sprite) p.sprite.setTint(PALETTE.green);
+      this.fx.burst(p.x, p.y, PALETTE.green, 4, 170, 0.3, 0.5);
+      bus.emit('sfx', 'hit');
     }
   }
 

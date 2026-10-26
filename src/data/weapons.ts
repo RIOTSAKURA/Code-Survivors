@@ -73,7 +73,7 @@ export const WEAPON_DEFS: Record<WeaponId, WeaponDef> = {
     name: '括号护盾',
     symbol: '()',
     tagline: 'Paren Shield',
-    desc: '括号环绕本体旋转，接触造成伤害与击退',
+    desc: '括号环绕本体旋转：接触造成伤害与击退，并反弹敌方弹幕（反弹弹伤害 ×1.6、弹速 ×1.35）',
     color: PALETTE.blue,
     maxLevel: 8,
     cooldown: () => 0.28,

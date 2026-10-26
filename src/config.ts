@@ -107,6 +107,13 @@ export const BOSS = {
   },
 };
 
+export const SHIELD = {
+  reflectRadius: 30,
+  reflectDamageScale: 1.6,
+  reflectSpeedScale: 1.35,
+  reflectMinLife: 2.5,
+};
+
 export const THROWER = {
   holdDistance: 260,
   retreatDistance: 200,
