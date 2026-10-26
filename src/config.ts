@@ -161,4 +161,4 @@ export const DEPTH = {
   floater: 16,
 };
 
-export const MONO_FONT = '"JetBrains Mono", "Fira Code", ui-monospace, monospace';
+export const MONO_FONT = '"JetBrains Mono", "Noto Sans SC", ui-monospace, monospace';

@@ -66,8 +66,16 @@ land in `screenshots/` (gitignored).
 
 ## Invariants that are easy to regress
 
-- **No external assets.** Every glyph, grid tile and glow is drawn on Canvas2D at boot, the tab icon
-  is rendered to a data url the same way, and all sound is WebAudio oscillators.
+- **No external assets, with one exception: fonts.** Every glyph, grid tile and glow is drawn on
+  Canvas2D at boot, the tab icon is rendered to a data url the same way, and all sound is WebAudio
+  oscillators. Typography is the one thing that cannot be generated: the game must not borrow the
+  system font or it renders differently on every OS, so JetBrains Mono ships through
+  `@fontsource/jetbrains-mono` and the CJK glyphs come from a subset of Noto Sans SC under
+  `src/assets/`. `scripts/subset-cjk.mjs` regenerates that subset, and a unit test fails whenever
+  new Chinese text is added without it, so run `npm run font:subset` after editing UI copy.
+- **Fonts load before the game starts.** Glyph textures are drawn once at boot, so `main.ts` awaits
+  `document.fonts` before constructing the game; without that gate the textures bake the fallback
+  font and stay wrong for the whole session.
 - **HiDPI.** Canvas backing store is `devicePixelRatio` × CSS size (capped at 2). Textures are
   generated at `DPR`, sprites must be drawn at `TEX_SCALE = 1/DPR`, cameras use `zoom = DPR`, and
   text objects need `setResolution(DPR)`. Keep WebGL MSAA off (`antialiasGL: false`): the 2×

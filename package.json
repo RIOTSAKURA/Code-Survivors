@@ -1,7 +1,7 @@
 {
   "name": "code-survivors",
   "private": true,
-  "version": "1.6.0",
+  "version": "1.6.1",
   "type": "module",
   "description": "A code-themed Vampire Survivors style auto-shooter built with Phaser 3",
   "scripts": {
@@ -10,12 +10,15 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "font:subset": "node scripts/subset-cjk.mjs"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "playwright-core": "^1.64.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",

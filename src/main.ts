@@ -1,3 +1,6 @@
+import './assets/cjk.css';
+import '@fontsource/jetbrains-mono/latin-400.css';
+import '@fontsource/jetbrains-mono/latin-700.css';
 import Phaser from 'phaser';
 import { DPR, PALETTE } from './config';
 import { sfx } from './core/audio';
@@ -19,54 +22,74 @@ bus.on<SfxName>('sfx', (name) => sfx.play(name));
 const versionLabel = document.getElementById('version');
 if (versionLabel) versionLabel.textContent = `v${__APP_VERSION__}`;
 
-const game = new Phaser.Game({
-  type: Phaser.AUTO,
-  parent: 'game',
-  width: Math.floor(window.innerWidth * DPR),
-  height: Math.floor(window.innerHeight * DPR),
-  backgroundColor: PALETTE.bg,
-  banner: false,
-  scale: {
-    mode: Phaser.Scale.NONE,
-    autoCenter: Phaser.Scale.NO_CENTER,
+const FONT_SPECS = [
+  '400 32px "JetBrains Mono"',
+  '700 32px "JetBrains Mono"',
+  '400 32px "Noto Sans SC"',
+  '700 32px "Noto Sans SC"',
+];
+
+async function waitForFonts(): Promise<void> {
+  try {
+    await Promise.all(FONT_SPECS.map((spec) => document.fonts.load(spec)));
+    await document.fonts.ready;
+  } catch {
+    // a missing font must never stop the game from starting
+  }
+}
+
+function createGame(): void {
+  const game = new Phaser.Game({
+    type: Phaser.AUTO,
+    parent: 'game',
     width: Math.floor(window.innerWidth * DPR),
     height: Math.floor(window.innerHeight * DPR),
-  },
-  input: {
-    keyboard: true,
-    mouse: true,
-    touch: true,
-  },
-  render: {
-    antialias: true,
-    antialiasGL: DPR === 1,
-    powerPreference: 'high-performance',
-    roundPixels: false,
-  },
-  fps: {
-    target: 60,
-    forceSetTimeOut: false,
-  },
-  scene: [BootScene, MenuScene, CodexScene, GameScene, UIScene],
-});
+    backgroundColor: PALETTE.bg,
+    banner: false,
+    scale: {
+      mode: Phaser.Scale.NONE,
+      autoCenter: Phaser.Scale.NO_CENTER,
+      width: Math.floor(window.innerWidth * DPR),
+      height: Math.floor(window.innerHeight * DPR),
+    },
+    input: {
+      keyboard: true,
+      mouse: true,
+      touch: true,
+    },
+    render: {
+      antialias: true,
+      antialiasGL: DPR === 1,
+      powerPreference: 'high-performance',
+      roundPixels: false,
+    },
+    fps: {
+      target: 60,
+      forceSetTimeOut: false,
+    },
+    scene: [BootScene, MenuScene, CodexScene, GameScene, UIScene],
+  });
 
-const canvas = game.canvas;
+  const canvas = game.canvas;
 
-const applyViewport = (): void => {
-  const width = Math.floor(window.innerWidth * DPR);
-  const height = Math.floor(window.innerHeight * DPR);
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
-  if (game.scale.width !== width || game.scale.height !== height) {
-    game.scale.resize(width, height);
-  }
-};
+  const applyViewport = (): void => {
+    const width = Math.floor(window.innerWidth * DPR);
+    const height = Math.floor(window.innerHeight * DPR);
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+    if (game.scale.width !== width || game.scale.height !== height) {
+      game.scale.resize(width, height);
+    }
+  };
 
-game.scale.setZoom(1 / DPR);
-applyViewport();
-window.addEventListener('resize', applyViewport);
-window.addEventListener('orientationchange', applyViewport);
+  game.scale.setZoom(1 / DPR);
+  applyViewport();
+  window.addEventListener('resize', applyViewport);
+  window.addEventListener('orientationchange', applyViewport);
 
-const unlock = () => sfx.unlock();
-window.addEventListener('pointerdown', unlock);
-window.addEventListener('keydown', unlock);
+  const unlock = () => sfx.unlock();
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
+}
+
+void waitForFonts().then(createGame);
