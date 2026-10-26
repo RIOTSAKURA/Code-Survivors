@@ -86,6 +86,7 @@ export const BOSS = {
     spawnFan: 0.9,
     spawnNearGap: 60,
     spawnNearSpread: 190,
+    tankAfter: 240,
     pool2: ['race', 'race', 'race', 'memleak', 'memleak', 'thrower'] as EnemyTypeId[],
     pool3: ['race', 'memleak', 'stack', 'stack', 'thrower'] as EnemyTypeId[],
   },

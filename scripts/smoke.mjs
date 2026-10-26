@@ -326,7 +326,8 @@ try {
 
 
   let bossSeen = null;
-  let sawPhase2 = false;
+  let bossTookDamage = false;
+  let reachedPhase2 = false;
   let bossRunDied = false;
   let minOrbsAfterBoss = Infinity;
   let frozenSamples = 0;
@@ -360,7 +361,8 @@ try {
       bossElapsedMs += 150;
       minOrbsAfterBoss = Math.min(minOrbsAfterBoss, hud.orbs);
       if (lastRunTime !== null && Math.abs(hud.time - lastRunTime) < 0.01) frozenSamples++;
-      if (hud.boss.phase >= 2 || hud.boss.hp < hud.boss.maxHp * 0.85) sawPhase2 = true;
+      if (hud.boss.hp < hud.boss.maxHp * 0.85) bossTookDamage = true;
+      if (hud.boss.phase >= 2) reachedPhase2 = true;
       if (hud.boss.phase < 2) enemiesBeforePhase2 = hud.enemies;
       if (bossElapsedMs > 3000) {
         maxOrbsInFight = Math.max(maxOrbsInFight, hud.orbs);
@@ -388,7 +390,7 @@ try {
   if (holding !== null) await bossPage.keyboard.up(holding);
   await bossPage.keyboard.up(orbitKeys[kiteIndex]);
   check(Boolean(bossSeen), 'segfault boss spawns and shows a health bar', bossSeen ? bossSeen.name : 'never seen');
-  if (!sawPhase2) console.log('SKIP  boss phase progression: the test player died in phase 1');
+  if (!reachedPhase2) console.log('SKIP  boss phase progression: the test player died in phase 1');
   check(
     minOrbsAfterBoss <= 3,
     'boss entrance emp wipes every orb on the field',
@@ -404,7 +406,8 @@ try {
     'the entrance clears every normal bug from the field',
     `fewest enemies during the fight: ${minEnemiesInFight}`,
   );
-  if (sawPhase2) {
+  check(bossTookDamage, 'boss takes damage from the player');
+  if (reachedPhase2) {
     check(
       maxEnemiesInFight > 1,
       'the boss can still call in its own minions',
@@ -423,8 +426,7 @@ try {
     'nothing drops loot while the boss is alive',
     `most orbs on the ground during the fight: ${maxOrbsInFight}`,
   );
-  if (sawPhase2) check(true, 'boss takes damage and reaches phase 2');
-  else console.log('SKIP  boss reaches phase 2 (the test player died first)');
+  if (!reachedPhase2) console.log('SKIP  boss reaches phase 2 (the test player died first)');
   await bossPage.screenshot({ path: join(SHOTS, '6-boss.png') });
   await bossPage.close();
 

@@ -4,6 +4,7 @@ import {
   ENEMY_DEFS,
   SPAWN_POOL,
   enemyHpScale,
+  bossSummonPool,
   enemySpeedScale,
   pickEnemyType,
   raceSprintFactor,
@@ -315,6 +316,18 @@ describe('boss minion waves', () => {
   it('sends the toughest bugs only once the boss is nearly dead', () => {
     expect(BOSS.summon.pool2).not.toContain('stack');
     expect(BOSS.summon.pool3).toContain('stack');
+  });
+
+  it('keeps the armoured tank out of the squad until the build can hurt it', () => {
+    for (const t of [0, 60, SPAWN.bossFirstAt, BOSS.summon.tankAfter - 1]) {
+      for (const phase of [2, 3]) {
+        expect(bossSummonPool(t, phase)).not.toContain('stack');
+      }
+    }
+    expect(bossSummonPool(BOSS.summon.tankAfter, 3)).toContain('stack');
+    expect(bossSummonPool(600, 3)).toContain('stack');
+    expect(BOSS.summon.tankAfter).toBeGreaterThan(SPAWN.bossFirstAt * 2);
+    expect(ENEMY_DEFS.stack.hp).toBeGreaterThan(ENEMY_DEFS.memleak.hp * 4);
   });
 
   it('drafts ranged bugs into the squad without turning it into a firing line', () => {

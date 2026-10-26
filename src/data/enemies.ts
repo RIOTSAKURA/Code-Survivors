@@ -1,4 +1,4 @@
-import { PALETTE, SPAWN } from '../config';
+import { BOSS, PALETTE, SPAWN } from '../config';
 import type { EnemyTypeId } from '../core/types';
 
 export interface EnemyDef {
@@ -142,6 +142,12 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
 };
 
 export const SPAWN_POOL: EnemyTypeId[] = ['syntax', 'nullptr', 'memleak', 'race', 'stack', 'thrower'];
+
+export function bossSummonPool(time: number, phase: number): EnemyTypeId[] {
+  const base = phase >= 3 ? BOSS.summon.pool3 : BOSS.summon.pool2;
+  if (time >= BOSS.summon.tankAfter) return base;
+  return base.filter((id) => id !== 'stack');
+}
 
 export function spawnRamp(time: number): number {
   const u = Math.min(1, Math.max(0, time / SPAWN.rateRampTime));

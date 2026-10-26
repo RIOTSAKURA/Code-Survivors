@@ -30,6 +30,7 @@ import type {
   WeaponId,
 } from '../core/types';
 import {
+  bossSummonPool,
   ENEMY_DEFS,
   enemyHpScale,
   enemySpeedScale,
@@ -632,7 +633,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private releaseMinions(e: Enemy, count: number, phase: number): void {
-    const pool = phase >= 3 ? BOSS.summon.pool3 : BOSS.summon.pool2;
+    const pool = bossSummonPool(this.run.time, phase);
     const towardPlayer = Math.atan2(this.playerY - e.y, this.playerX - e.x);
     for (let i = 0; i < count; i++) {
       const angle = towardPlayer + this.rng.range(-BOSS.summon.spawnFan, BOSS.summon.spawnFan);
