@@ -555,8 +555,8 @@ export class GameScene extends Phaser.Scene {
       this.announceBossPhase(e, phase);
     }
     this.updateBossSummons(e, dt, phase);
-    if (phase === 1) this.bossBarrage(e, dt, dist, false);
-    else if (phase === 2) this.bossBarrage(e, dt, dist, true);
+    if (phase === 1) this.bossBarrage(e, dt, dist, BOSS.barrage.phase1);
+    else if (phase === 2) this.bossBarrage(e, dt, dist, BOSS.barrage.phase2);
     else this.bossSpiral(e, dt, dist);
   }
 
@@ -620,23 +620,33 @@ export class GameScene extends Phaser.Scene {
 
   private releaseMinions(e: Enemy, count: number, phase: number): void {
     const pool = phase >= 3 ? BOSS.summon.pool3 : BOSS.summon.pool2;
+    const towardPlayer = Math.atan2(this.playerY - e.y, this.playerX - e.x);
     for (let i = 0; i < count; i++) {
-      const angle = this.rng.range(0, TAU);
-      const r = this.rng.range(50, 150);
+      const angle = towardPlayer + this.rng.range(-BOSS.summon.spawnFan, BOSS.summon.spawnFan);
+      const r = this.rng.range(BOSS.summon.spawnNearGap, BOSS.summon.spawnNearSpread);
       const minion = this.spawnEnemy(this.rng.pick(pool), e.x + Math.cos(angle) * r, e.y + Math.sin(angle) * r, true);
       if (minion) minion.summoned = true;
     }
-    this.fx.burst(e.x, e.y, PALETTE.orange, 16, 280, 0.6, 0.9);
+    for (let i = 0; i < 10; i++) {
+      const angle = towardPlayer + this.rng.range(-BOSS.summon.spawnFan, BOSS.summon.spawnFan);
+      const r = this.rng.range(40, BOSS.summon.spawnNearSpread);
+      this.fx.burst(e.x + Math.cos(angle) * r, e.y + Math.sin(angle) * r, PALETTE.orange, 3, 150, 0.5, 0.6);
+    }
     bus.emit('sfx', 'explode');
   }
 
-  private bossBarrage(e: Enemy, dt: number, dist: number, sparse: boolean): void {
+  private bossBarrage(
+    e: Enemy,
+    dt: number,
+    dist: number,
+    profile: { every: number; bullets: number; speed: number; damage: number },
+  ): void {
     e.castAt -= dt;
     if (e.castAt > 0 || dist > BOSS.range) return;
-    const bullets = sparse ? BOSS.barrage.sparseBullets : BOSS.barrage.bullets;
-    const speed = sparse ? BOSS.barrage.sparseSpeed : BOSS.barrage.speed;
-    const damage = sparse ? BOSS.barrage.sparseDamage : BOSS.barrage.damage;
-    e.castAt = sparse ? BOSS.barrage.sparseEvery : BOSS.barrage.every;
+    const bullets = profile.bullets;
+    const speed = profile.speed;
+    const damage = profile.damage;
+    e.castAt = profile.every;
     const offset = this.rng.range(0, TAU);
     for (let i = 0; i < bullets; i++) {
       this.spawnBossBullet(e, offset + (i / bullets) * TAU, speed, damage, PALETTE.red);

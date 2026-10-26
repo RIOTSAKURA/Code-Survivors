@@ -316,6 +316,30 @@ describe('boss minion waves', () => {
     expect(BOSS.summon.pool2).not.toContain('stack');
     expect(BOSS.summon.pool3).toContain('stack');
   });
+
+  it('drafts ranged bugs into the squad without turning it into a firing line', () => {
+    for (const pool of [BOSS.summon.pool2, BOSS.summon.pool3]) {
+      expect(pool).toContain('thrower');
+      const rangedShare = pool.filter((id) => id === 'thrower').length / pool.length;
+      expect(rangedShare).toBeGreaterThan(0);
+      expect(rangedShare).toBeLessThanOrEqual(0.25);
+    }
+  });
+
+  it('lands the squad on the player facing side of the boss', () => {
+    expect(BOSS.summon.spawnFan).toBeGreaterThan(0);
+    expect(BOSS.summon.spawnFan).toBeLessThan(Math.PI / 2);
+    expect(BOSS.summon.spawnNearSpread).toBeGreaterThan(BOSS.summon.spawnNearGap);
+  });
+
+  it('never lets phase 2 become the soft phase', () => {
+    const { phase1, phase2 } = BOSS.barrage;
+    expect(phase2.every).toBeLessThanOrEqual(phase1.every);
+    expect(phase2.bullets).toBeGreaterThanOrEqual(phase1.bullets);
+    expect(phase2.damage).toBeGreaterThanOrEqual(phase1.damage);
+    const dps = (p: { every: number; bullets: number; damage: number }) => (p.bullets * p.damage) / p.every;
+    expect(dps(phase2)).toBeGreaterThan(dps(phase1));
+  });
 });
 
 describe('passive isolation', () => {

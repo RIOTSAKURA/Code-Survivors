@@ -70,14 +70,8 @@ import type { EnemyTypeId } from './core/types';
 export const BOSS = {
   range: 1000,
   barrage: {
-    every: 2.1,
-    bullets: 12,
-    speed: 200,
-    damage: 9,
-    sparseEvery: 3.8,
-    sparseBullets: 8,
-    sparseSpeed: 165,
-    sparseDamage: 8,
+    phase1: { every: 2.1, bullets: 12, speed: 200, damage: 9 },
+    phase2: { every: 1.9, bullets: 14, speed: 215, damage: 11 },
   },
   summon: {
     openerVolleys: 3,
@@ -89,8 +83,11 @@ export const BOSS = {
     heavyEvery: 10,
     heavyVolleys: 2,
     heavyPerVolley: 5,
-    pool2: ['race', 'race', 'race', 'memleak', 'memleak', 'memleak'] as EnemyTypeId[],
-    pool3: ['race', 'memleak', 'memleak', 'stack', 'stack'] as EnemyTypeId[],
+    spawnFan: 0.9,
+    spawnNearGap: 60,
+    spawnNearSpread: 190,
+    pool2: ['race', 'race', 'race', 'memleak', 'memleak', 'thrower'] as EnemyTypeId[],
+    pool3: ['race', 'memleak', 'stack', 'stack', 'thrower'] as EnemyTypeId[],
   },
   spiral: {
     every: 0.07,
