@@ -11,6 +11,12 @@ const ENEMY_TEXTURES: Array<[string, string, number]> = [
   ['e_boss', '0xDEAD', 58],
 ];
 
+const ITEM_TEXTURES: Array<[string, string, number]> = [
+  ['item_hotfix', 'hotfix', 22],
+  ['item_sigkill', 'kill -9', 22],
+  ['item_fetch', 'fetch', 22],
+];
+
 const WEAPON_TEXTURES: Array<[string, string, number]> = [
   ['w_dart', ';', 24],
   ['w_orbit', '()', 20],
@@ -33,6 +39,9 @@ export class BootScene extends Phaser.Scene {
     makeGlyphTexture(this, 'proj_bullet', '*', { size: 20, glow: 8 });
     for (const [key, glyph, size] of ENEMY_TEXTURES) {
       makeGlyphTexture(this, key, glyph, { size, glow: Math.round(size * 0.34) });
+    }
+    for (const [key, glyph, size] of ITEM_TEXTURES) {
+      makeGlyphTexture(this, key, glyph, { size, glow: Math.round(size * 0.5) });
     }
     for (const [key, glyph, size] of WEAPON_TEXTURES) {
       makeGlyphTexture(this, key, glyph, { size, glow: Math.round(size * 0.45) });

@@ -3,6 +3,7 @@ import {
   BOSS,
   DEPTH,
   ENTRANCE,
+  ITEM,
   ORB,
   PALETTE,
   PLAYER,
@@ -24,11 +25,14 @@ import type {
   EnemyTypeId,
   Orb,
   Orbiter,
+  Pickup,
   Projectile,
   RunState,
   UpgradeId,
   WeaponId,
 } from '../core/types';
+import { ITEM_DEFS, pickItemDrop } from '../data/items';
+import type { ItemId } from '../data/items';
 import {
   bossSummonPool,
   ENEMY_DEFS,
@@ -101,6 +105,7 @@ export class GameScene extends Phaser.Scene {
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
   private orbs: Orb[] = [];
+  private pickups: Pickup[] = [];
   private orbiters: Orbiter[] = [];
   private clones: Clone[] = [];
   private beams: Beam[] = [];
@@ -124,6 +129,7 @@ export class GameScene extends Phaser.Scene {
   private nextBossAt = SPAWN.bossFirstAt;
   private bossGeneration = 0;
   private enemyId = 1;
+  private pickupId = 1;
   private xpNeed = xpForLevel(1);
   private choosing = false;
   private paused = false;
@@ -152,6 +158,7 @@ export class GameScene extends Phaser.Scene {
     this.enemies = [];
     this.projectiles = [];
     this.orbs = [];
+    this.pickups = [];
     this.orbiters = [];
     this.clones = [];
     this.beams = [];
@@ -160,6 +167,7 @@ export class GameScene extends Phaser.Scene {
     this.nextBossAt = SPAWN.bossFirstAt;
     this.bossGeneration = 0;
     this.enemyId = 1;
+    this.pickupId = 1;
     this.xpNeed = xpForLevel(1);
     this.choosing = false;
     this.paused = false;
@@ -274,6 +282,7 @@ export class GameScene extends Phaser.Scene {
       this.syncGridToCamera();
       hud.orbs = this.orbs.length;
       hud.enemies = this.enemies.length;
+      hud.items = this.pickups.length;
       syncHud(this.run, this.xpNeed);
       return;
     }
@@ -307,6 +316,7 @@ export class GameScene extends Phaser.Scene {
     this.updateWeapons(dt);
     this.updateProjectiles(dt);
     this.updateOrbs(dt);
+    this.updatePickups(dt);
     this.updateSpawner(dt);
     this.updateBeams(dt);
 
@@ -314,6 +324,7 @@ export class GameScene extends Phaser.Scene {
     this.pruneEntities();
     hud.orbs = this.orbs.length;
     hud.enemies = this.enemies.length;
+    hud.items = this.pickups.length;
     this.drawBeams();
     this.updateCamera();
     this.checkLevelUp();
@@ -1265,6 +1276,150 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private dropItem(x: number, y: number): void {
+    const kind = pickItemDrop(this.rng.next());
+    if (!kind) return;
+    const def = ITEM_DEFS[kind];
+    const sprite = this.images.acquire();
+    sprite.setTexture(`item_${kind}`);
+    sprite.setTint(def.color);
+    sprite.setDepth(DEPTH.orb);
+    sprite.setScale(1.15 * TEX_SCALE);
+    sprite.setPosition(x, y);
+    const angle = this.rng.range(0, TAU);
+    const speed = this.rng.range(40, 110);
+    this.pickups.push({
+      id: this.pickupId++,
+      kind,
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: ITEM.lifetime * this.orbLifeScale,
+      bob: 0,
+      sprite,
+      dead: false,
+    });
+    this.fx.burst(x, y, def.color, 6, 130, 0.4, 0.5);
+  }
+
+  private updatePickups(dt: number): void {
+    const stats = this.run.stats;
+    for (let i = 0; i < this.pickups.length; i++) {
+      const p = this.pickups[i];
+      if (p.dead) continue;
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.dead = true;
+        this.fx.burst(p.x, p.y, ITEM_DEFS[p.kind].color, 4, 90, 0.3, 0.45);
+        continue;
+      }
+      p.bob += dt;
+      const dx = this.playerX - p.x;
+      const dy = this.playerY - p.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const reach = stats.pickupRadius + ITEM.grabRadius;
+      if (dist < reach) homeOrbVelocity(p, dx, dy, dist, stats.speed, dt);
+      else dampOrbVelocity(p, dt);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.sprite) {
+        p.sprite.setPosition(p.x, p.y);
+        const pulse = 1 + 0.12 * Math.sin(p.bob * 5);
+        p.sprite.setScale(pulse * 1.15 * TEX_SCALE);
+        const fading = p.life < ITEM.blinkTime;
+        p.sprite.setAlpha(
+          fading ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(this.run.time * 16)) : 1,
+        );
+      }
+      const restX = this.playerX - p.x;
+      const restY = this.playerY - p.y;
+      if (restX * restX + restY * restY <= (PLAYER.collectRadius + ITEM.grabRadius) ** 2) {
+        p.dead = true;
+        this.collectItem(p.kind);
+      }
+    }
+  }
+
+  private collectItem(kind: ItemId): void {
+    const def = ITEM_DEFS[kind];
+    this.fx.burst(this.playerX, this.playerY, def.color, 20, 300, 0.6, 0.9);
+    this.cameras.main.flash(160, ...this.flashTint(def.color), false);
+    if (kind === 'hotfix') {
+      const before = this.run.hp;
+      this.run.hp = Math.min(this.run.stats.maxHp, this.run.hp + ITEM.heal);
+      const healed = Math.round(this.run.hp - before);
+      this.fx.text(this.playerX, this.playerY - 46, `+${healed} HP`, '#4aa8ff', 18);
+      bus.emit(EV.banner, { text: 'HOTFIX APPLIED', sub: `patched +${healed} hp`, ms: 1200 });
+      bus.emit('sfx', 'levelup');
+      return;
+    }
+    if (kind === 'sigkill') {
+      this.empBlast();
+      return;
+    }
+    const gained = this.fetchAllOrbs();
+    this.fx.text(this.playerX, this.playerY - 46, `+${Math.round(gained)} XP`, '#bd5fff', 18);
+    bus.emit(EV.banner, {
+      text: 'FETCH ALL',
+      sub: gained > 0 ? `pulled ${Math.round(gained)} xp back in` : 'nothing left to pull',
+      ms: 1300,
+    });
+    bus.emit('sfx', 'levelup');
+  }
+
+  private flashTint(color: number): [number, number, number] {
+    return [(color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff];
+  }
+
+  private empBlast(): void {
+    let wiped = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e.dead || e.boss) continue;
+      wiped += 1;
+      this.killEnemy(e);
+    }
+    const boss = this.activeBoss;
+    if (boss && !boss.dead) {
+      this.damageEnemy(boss, boss.maxHp * ITEM.empBossPct, true);
+    }
+    this.cameras.main.shake(420, 0.016);
+    hud.damageFlash = 1;
+    this.beams.push({
+      kind: 'ring',
+      x: this.playerX,
+      y: this.playerY,
+      angle: 0,
+      length: 40,
+      width: 7,
+      spread: 0,
+      color: PALETTE.orange,
+      life: 0.6,
+      maxLife: 0.6,
+      grow: 10,
+    });
+    bus.emit('sfx', 'emp');
+    bus.emit(EV.banner, {
+      text: 'SIGKILL',
+      sub: `${wiped} process${wiped === 1 ? '' : 'es'} terminated`,
+      ms: 1500,
+    });
+  }
+
+  private fetchAllOrbs(): number {
+    let gained = 0;
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (o.dead) continue;
+      o.dead = true;
+      gained += o.value;
+      this.fx.burst(o.x, o.y, o.big ? PALETTE.cyan : PALETTE.green, 2, 110, 0.3, 0.4);
+    }
+    this.run.xp += gained;
+    return gained;
+  }
+
   private updateOrbs(dt: number): void {
     const stats = this.run.stats;
     for (let i = 0; i < this.orbs.length; i++) {
@@ -1358,7 +1513,10 @@ export class GameScene extends Phaser.Scene {
     this.run.kills += 1;
     const def = ENEMY_DEFS[e.type];
     this.fx.burst(e.x, e.y, e.color, e.boss ? 44 : e.elite ? 14 : 8, e.boss ? 380 : 200, 0.6, e.boss ? 1.3 : 0.75);
-    if (!e.summoned) this.dropOrbs(e.x, e.y, e.xp, e.boss);
+    if (!e.summoned) {
+      this.dropOrbs(e.x, e.y, e.xp, e.boss);
+      this.dropItem(e.x, e.y);
+    }
     bus.emit('sfx', e.boss ? 'explode' : 'hit');
     if (e.boss) {
       this.activeBoss = null;
@@ -1809,6 +1967,13 @@ export class GameScene extends Phaser.Scene {
       if (o.sprite) this.images.release(o.sprite);
       const last = this.orbs.pop()!;
       if (i < this.orbs.length) this.orbs[i] = last;
+    }
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const p = this.pickups[i];
+      if (!p.dead) continue;
+      if (p.sprite) this.images.release(p.sprite);
+      const last = this.pickups.pop()!;
+      if (i < this.pickups.length) this.pickups[i] = last;
     }
   }
 }

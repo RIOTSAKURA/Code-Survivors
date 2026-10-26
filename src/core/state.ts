@@ -63,6 +63,7 @@ export interface HudState {
   choices: number;
   orbs: number;
   enemies: number;
+  items: number;
 }
 
 export const hud: HudState = {
@@ -84,6 +85,7 @@ export const hud: HudState = {
   choices: 0,
   orbs: 0,
   enemies: 0,
+  items: 0,
 };
 
 export function syncHud(run: RunState, xpNeed: number): void {

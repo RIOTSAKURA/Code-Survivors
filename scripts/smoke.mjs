@@ -193,15 +193,21 @@ try {
   const codexBugs = await page.evaluate(() => window.__codex ?? null);
   await page.keyboard.press('Digit3');
   await page.waitForTimeout(300);
+  const codexDrops = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('Digit4');
+  await page.waitForTimeout(300);
   const codexModules = await page.evaluate(() => window.__codex ?? null);
   await page.screenshot({ path: join(SHOTS, '12-codex.png') });
   await page.keyboard.press('KeyC');
   await page.waitForTimeout(500);
   const codexClosed = await page.evaluate(() => window.__codex ?? null);
   check(
-    codexWeapons?.entries === 6 && codexBugs?.entries === 7 && codexModules?.entries === 8,
-    'codex lists every weapon, bug and module',
-    `w=${codexWeapons?.entries} e=${codexBugs?.entries} p=${codexModules?.entries}`,
+    codexWeapons?.entries === 6 &&
+      codexBugs?.entries === 7 &&
+      codexDrops?.entries === 3 &&
+      codexModules?.entries === 8,
+    'codex lists every weapon, bug, drop and module',
+    `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} p=${codexModules?.entries}`,
   );
   check(codexClosed === null, 'codex closes back to the menu');
 

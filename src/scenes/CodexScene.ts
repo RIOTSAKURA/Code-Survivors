@@ -2,10 +2,11 @@ import Phaser from 'phaser';
 import { DPR, MONO_FONT, PALETTE, TEX_SCALE } from '../config';
 import { applyTextResolution, setupFixedCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale } from '../data/enemies';
+import { ITEM_DEFS, ITEM_IDS, itemDropChance } from '../data/items';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
 import { WEAPON_DEFS, WEAPON_IDS, cloneCooldown, orbitSpin } from '../data/weapons';
 
-type PageId = 'weapon' | 'enemy' | 'passive';
+type PageId = 'weapon' | 'enemy' | 'item' | 'passive';
 
 interface Page {
   id: PageId;
@@ -32,7 +33,8 @@ interface CodexHook {
 const PAGES: Page[] = [
   { id: 'weapon', tab: '[1] 武器', title: 'weapons/', note: '自动开火 · 每种武器 8 级' },
   { id: 'enemy', tab: '[2] 敌人', title: 'bugs/', note: '基础数值 · 随时间与玩家等级成长' },
-  { id: 'passive', tab: '[3] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
+  { id: 'item', tab: '[3] 掉落', title: 'drops/', note: '小概率掉落 · 走到拾取圈内即拾取' },
+  { id: 'passive', tab: '[4] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
 ];
 
 const ROW_H = 86;
@@ -112,7 +114,7 @@ export class CodexScene extends Phaser.Scene {
     header.setShadow(0, 0, hex(PALETTE.cyan), HEADER_GLOW, true, true);
 
     this.tabTexts = PAGES.map((_, i) =>
-      this.add.text(48 + i * 124, 72, '', {
+      this.add.text(48 + i * 118, 72, '', {
         fontFamily: MONO_FONT,
         fontSize: '15px',
         color: hex(PALETTE.textDim),
@@ -136,7 +138,7 @@ export class CodexScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
     this.add
-      .text(width / 2, viewHeight(cam) - 20, '← → 或 1 2 3 切换页   ·   C / ESC / 点击 返回菜单', {
+      .text(width / 2, viewHeight(cam) - 20, '← → 或 1 2 3 4 切换页   ·   C / ESC / 点击 返回菜单', {
         fontFamily: MONO_FONT,
         fontSize: '14px',
         color: hex(PALETTE.textDim),
@@ -151,6 +153,7 @@ export class CodexScene extends Phaser.Scene {
     keyboard.on('keydown-ONE', () => this.show(0));
     keyboard.on('keydown-TWO', () => this.show(1));
     keyboard.on('keydown-THREE', () => this.show(2));
+    keyboard.on('keydown-FOUR', () => this.show(3));
     this.input.once('pointerdown', () => this.close());
 
     const hook = window as unknown as { __codex?: CodexHook };
@@ -221,6 +224,19 @@ export class CodexScene extends Phaser.Scene {
           tagline: def.label,
           desc: def.desc,
           stats,
+        };
+      });
+    }
+    if (id === 'item') {
+      return ITEM_IDS.map((itemId) => {
+        const def = ITEM_DEFS[itemId];
+        return {
+          symbol: def.glyph,
+          color: def.color,
+          name: def.name,
+          tagline: def.tagline,
+          desc: def.desc,
+          stats: [`${(itemDropChance(itemId) * 100).toFixed(1)}% 每次击杀`, def.detail],
         };
       });
     }

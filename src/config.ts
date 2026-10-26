@@ -108,6 +108,15 @@ export const BOSS = {
   },
 };
 
+export const ITEM = {
+  rate: { hotfix: 0.014, fetch: 0.008, sigkill: 0.0032 },
+  heal: 30,
+  empBossPct: 0.15,
+  grabRadius: 46,
+  lifetime: 30,
+  blinkTime: 6,
+};
+
 export const SHIELD = {
   reflectRadius: 30,
   reflectDamageScale: 1.6,

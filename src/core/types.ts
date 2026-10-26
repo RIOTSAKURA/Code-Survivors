@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import type { ItemId } from '../data/items';
 
 export type WeaponId = 'dart' | 'orbit' | 'bomb' | 'ray' | 'cone' | 'clone';
 
@@ -124,6 +125,19 @@ export interface Orb {
   value: number;
   big: boolean;
   life: number;
+  sprite: Phaser.GameObjects.Image | null;
+  dead: boolean;
+}
+
+export interface Pickup {
+  id: number;
+  kind: ItemId;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  bob: number;
   sprite: Phaser.GameObjects.Image | null;
   dead: boolean;
 }
