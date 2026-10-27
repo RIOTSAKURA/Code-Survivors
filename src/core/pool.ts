@@ -27,6 +27,7 @@ export class ImagePool {
     img.setAlpha(1);
     img.setScale(TEX_SCALE);
     img.setAngle(0);
+    img.setTint(0xffffff);
     return img;
   }
 

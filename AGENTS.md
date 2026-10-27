@@ -12,6 +12,10 @@ Guidance for agent sessions working in this repository.
 | `npm test` | vitest unit tests for the pure logic modules |
 | `npm run smoke` | end-to-end test in real Chrome (needs `npm run build` first) |
 
+The smoke suite drives a real Chrome instance, so give it a quiet machine: under load the
+simulation advances slower than wall clock and the run stretches (there is an 8 minute watchdog,
+`SMOKE_BUDGET_MS` overrides it).
+
 Always run `npm run typecheck && npm test`. Also run `npm run smoke` for anything touching
 gameplay, rendering, input, balance or the HUD — it drives a real browser through boot, combat
 pacing, pause, HiDPI, loot rules and boss phases, and fails on any console/page error. Screenshots
@@ -81,6 +85,10 @@ land in `screenshots/` (gitignored).
   text objects need `setResolution(DPR)`. Keep WebGL MSAA off (`antialiasGL: false`): the 2×
   supersample is the anti-aliasing, and enabling MSAA dropped the target Intel iGPU from 60 to
   23 fps at 2880×1800.
+- **Pooled sprites keep no state.** `ImagePool.acquire` resets alpha, scale, angle, tint and
+  visibility, so anything that needs a colour must set one right after acquiring (an untinted
+  sprite inherits nothing and renders white). Forgetting it used to leak the previous owner's
+  tint into whatever grabbed the sprite next.
 - **Glowing text needs padding.** Phaser sizes a `Text` canvas as the measured text plus its
   `padding`, and ignores `shadowBlur`, so any `setShadow(...)` glow is clipped unless the style sets
   padding at least as large as the blur (and the position is offset by that padding when the origin

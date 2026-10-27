@@ -115,6 +115,19 @@ const readFps = (page) =>
 await new Promise((r) => server.listen(PORT, r));
 const browser = await chromium.launch(launchOptions);
 
+const BUDGET_MS = Number(process.env.SMOKE_BUDGET_MS ?? 8 * 60 * 1000);
+const startedAt = Date.now();
+const watchdog = setInterval(() => {
+  if (Date.now() - startedAt < BUDGET_MS) return;
+  clearInterval(watchdog);
+  console.log(`\nSMOKE TIMED OUT after ${Math.round((Date.now() - startedAt) / 1000)}s`);
+  console.log('the suite drives a real browser; give it a quiet machine or raise SMOKE_BUDGET_MS');
+  void browser.close().catch(() => {});
+  server.close();
+  process.exit(1);
+}, 5000);
+watchdog.unref?.();
+
 const play = async (page, seconds, { move = true } = {}) => {
   const keys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   let index = 0;
@@ -150,6 +163,7 @@ try {
 
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
   await page.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await page.waitForFunction(() => Boolean(window.__menu), null, { timeout: 20000 });
   await page.waitForTimeout(1000);
   await page.screenshot({ path: join(SHOTS, '1-menu.png') });
   check(
@@ -294,7 +308,8 @@ try {
   );
 
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(1400);
+  await page.waitForFunction(() => window.__hud.choices > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(200);
   const opening = await readHud(page);
   check(opening.choices >= 1, 'opening module selection shown', `choices=${opening.choices}`);
   await page.screenshot({ path: join(SHOTS, '2-upgrade-panel.png') });
@@ -643,6 +658,7 @@ try {
   failures.push(`exception: ${error.message}`);
   console.log(`FAIL  smoke run threw: ${error.message}`);
 } finally {
+  clearInterval(watchdog);
   if (errors.length) {
     console.log('\nbrowser errors:');
     for (const e of errors.slice(0, 20)) console.log(`  - ${e}`);

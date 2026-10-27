@@ -983,6 +983,7 @@ export class GameScene extends Phaser.Scene {
       const slot = this.orbiters.length;
       const sprite = this.images.acquire();
       sprite.setTexture('w_orbit');
+      sprite.setTint(WEAPON_DEFS.orbit.color);
       sprite.setDepth(DEPTH.orbiter);
       this.orbiters.push({
         index: this.orbiterSeq++ % MAX_ORBIT_SLOTS,
