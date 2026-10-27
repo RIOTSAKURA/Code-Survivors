@@ -108,6 +108,27 @@ export const BOSS = {
   },
 };
 
+export const TERRAIN = {
+  zoneCount: 10,
+  zoneRadiusMin: 130,
+  zoneRadiusMax: 220,
+  zoneSpreadMin: 90,
+  zoneMargin: 320,
+  startSafeRadius: 620,
+  decorCount: 72,
+  towerMargin: 60,
+  zoneShuffleEvery: 45,
+  zonePlayerGap: 170,
+  charge: { sustain: 14, recover: 9 },
+  effects: {
+    includeCooldown: 0.2,
+    pragmaSpeed: 0.25,
+    leakSpeed: 0.72,
+    crashPlayerDps: 5,
+    crashEnemyDps: 20,
+  },
+};
+
 export const ITEM = {
   rate: { hotfix: 0.014, fetch: 0.008, sigkill: 0.0032 },
   heal: 30,

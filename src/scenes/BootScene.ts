@@ -1,5 +1,14 @@
 import Phaser from 'phaser';
-import { PARTICLE_GLYPHS, makeDotTexture, makeGlyphTexture, makeGridTexture, makePixelTexture, particleKey } from '../core/textures';
+import {
+  PARTICLE_GLYPHS,
+  makeDotTexture,
+  makeGlyphTexture,
+  makeGridTexture,
+  makePixelTexture,
+  makeZoneGlowTexture,
+  makeZoneRingTexture,
+  particleKey,
+} from '../core/textures';
 
 const ENEMY_TEXTURES: Array<[string, string, number]> = [
   ['e_syntax', '~', 32],
@@ -33,6 +42,8 @@ export class BootScene extends Phaser.Scene {
     makePixelTexture(this);
     makeGridTexture(this, 'grid', 40, 5);
     makeDotTexture(this, 'dot', 8);
+    makeZoneGlowTexture(this, 'zoneGlow');
+    makeZoneRingTexture(this, 'zoneRing');
     makeGlyphTexture(this, 'player', '</>', { size: 30, glow: 14 });
     makeGlyphTexture(this, 'orb_0', '0', { size: 18, glow: 8 });
     makeGlyphTexture(this, 'orb_1', '1', { size: 18, glow: 8 });

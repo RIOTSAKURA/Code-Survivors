@@ -79,6 +79,54 @@ export function makeGlyphTexture(
   scene.textures.addCanvas(key, canvas);
 }
 
+export function makeZoneGlowTexture(scene: Phaser.Scene, key: string, size = 256): void {
+  if (scene.textures.exists(key)) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+  grad.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.10)');
+  grad.addColorStop(0.86, 'rgba(255,255,255,0.18)');
+  grad.addColorStop(0.965, 'rgba(255,255,255,0.62)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(half, half, half, 0, Math.PI * 2);
+  ctx.fill();
+  scene.textures.addCanvas(key, canvas);
+}
+
+export function makeZoneRingTexture(scene: Phaser.Scene, key: string, size = 512): void {
+  if (scene.textures.exists(key)) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const half = size / 2;
+  const radius = half - 6;
+  const segments = 44;
+  ctx.strokeStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(255,255,255,0.85)';
+  ctx.shadowBlur = 6;
+  ctx.lineWidth = 5;
+  for (let i = 0; i < segments; i++) {
+    const from = (i / segments) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(half, half, radius, from, from + (Math.PI * 2 * 0.55) / segments);
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath();
+  ctx.arc(half, half, radius - 12, 0, Math.PI * 2);
+  ctx.stroke();
+  scene.textures.addCanvas(key, canvas);
+}
+
 export function makeGridTexture(scene: Phaser.Scene, key: string, step: number, major: number): void {
   if (scene.textures.exists(key)) return;
   step = Math.round(step * DPR);

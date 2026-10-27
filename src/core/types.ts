@@ -75,6 +75,7 @@ export interface Enemy {
   orbitHit: number[];
   knockX: number;
   knockY: number;
+  slowUntil?: number;
 }
 
 export interface Projectile {

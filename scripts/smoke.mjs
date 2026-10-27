@@ -278,6 +278,9 @@ try {
   const codexDrops = await page.evaluate(() => window.__codex ?? null);
   await page.keyboard.press('Digit4');
   await page.waitForTimeout(300);
+  const codexZones = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('Digit5');
+  await page.waitForTimeout(300);
   const codexModules = await page.evaluate(() => window.__codex ?? null);
   await page.screenshot({ path: join(SHOTS, '12-codex.png') });
   await page.keyboard.press('KeyC');
@@ -287,9 +290,10 @@ try {
     codexWeapons?.entries === 6 &&
       codexBugs?.entries === 7 &&
       codexDrops?.entries === 3 &&
+      codexZones?.entries === 4 &&
       codexModules?.entries === 8,
-    'codex lists every weapon, bug, drop and module',
-    `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} p=${codexModules?.entries}`,
+    'codex lists every weapon, bug, drop, zone and module',
+    `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} z=${codexZones?.entries} p=${codexModules?.entries}`,
   );
   check(codexClosed === null, 'codex closes back to the menu');
 
@@ -339,6 +343,21 @@ try {
   await page.screenshot({ path: join(SHOTS, '3-combat.png') });
   check(mid.time > 8, 'simulation advances', `t=${mid.time.toFixed(1)}s`);
   check(mid.kills > 5, 'enemies spawn and die', `kills=${mid.kills}`);
+  const terrain = await page.evaluate(() => ({
+    zones: window.__hud.zones,
+    seed: window.__hud.seed,
+    zone: window.__hud.zone,
+  }));
+  check(
+    terrain.zones === 10 && terrain.seed > 0,
+    'map generates terrain zones from a seed',
+    `zones=${terrain.zones} seed=${terrain.seed}`,
+  );
+  check(
+    terrain.zone === null || typeof terrain.zone.charge === 'number',
+    'hud reports the zone the player stands in',
+    JSON.stringify(terrain.zone),
+  );
   check(
     leveled.level >= 2,
     'xp pickups grant levels',

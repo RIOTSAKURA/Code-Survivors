@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
-import { DPR, MONO_FONT, PALETTE, TEX_SCALE } from '../config';
+import { DPR, MONO_FONT, PALETTE, TERRAIN, TEX_SCALE } from '../config';
 import { applyTextResolution, setupFixedCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale } from '../data/enemies';
 import { ITEM_DEFS, ITEM_IDS, itemDropChance } from '../data/items';
+import { ZONE_DEFS, ZONE_KINDS } from '../data/terrain';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
 import { WEAPON_DEFS, WEAPON_IDS, cloneCooldown, orbitSpin } from '../data/weapons';
 
-type PageId = 'weapon' | 'enemy' | 'item' | 'passive';
+type PageId = 'weapon' | 'enemy' | 'item' | 'zone' | 'passive';
 
 interface Page {
   id: PageId;
@@ -34,7 +35,8 @@ const PAGES: Page[] = [
   { id: 'weapon', tab: '[1] 武器', title: 'weapons/', note: '自动开火 · 每种武器 8 级' },
   { id: 'enemy', tab: '[2] 敌人', title: 'bugs/', note: '基础数值 · 随时间与玩家等级成长' },
   { id: 'item', tab: '[3] 掉落', title: 'drops/', note: '小概率掉落 · 走到拾取圈内即拾取' },
-  { id: 'passive', tab: '[4] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
+  { id: 'zone', tab: '[4] 地形', title: 'terrain/', note: '随机生成 · 不阻挡移动 · 每 45s 重新编译一次' },
+  { id: 'passive', tab: '[5] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
 ];
 
 const ROW_H = 86;
@@ -138,7 +140,7 @@ export class CodexScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
     this.add
-      .text(width / 2, viewHeight(cam) - 20, '← → 或 1 2 3 4 切换页   ·   C / ESC / 点击 返回菜单', {
+      .text(width / 2, viewHeight(cam) - 20, '← → 或 1 2 3 4 5 切换页   ·   C / ESC / 点击 返回菜单', {
         fontFamily: MONO_FONT,
         fontSize: '14px',
         color: hex(PALETTE.textDim),
@@ -154,6 +156,7 @@ export class CodexScene extends Phaser.Scene {
     keyboard.on('keydown-TWO', () => this.show(1));
     keyboard.on('keydown-THREE', () => this.show(2));
     keyboard.on('keydown-FOUR', () => this.show(3));
+    keyboard.on('keydown-FIVE', () => this.show(4));
     this.input.once('pointerdown', () => this.close());
 
     const hook = window as unknown as { __codex?: CodexHook };
@@ -222,6 +225,35 @@ export class CodexScene extends Phaser.Scene {
           color: def.color,
           name: def.name,
           tagline: def.label,
+          desc: def.desc,
+          stats,
+        };
+      });
+    }
+    if (id === 'zone') {
+      return ZONE_KINDS.map((kind) => {
+        const def = ZONE_DEFS[kind];
+        const dur = TERRAIN.charge;
+        const stats: string[] = [];
+        if (kind === 'include') {
+          stats.push(`攻速 +${Math.round(TERRAIN.effects.includeCooldown * 100)}%`);
+          stats.push(`${dur.sustain}s 耗尽后消散 · 离场 ${dur.recover}s 回充`);
+        } else if (kind === 'pragma') {
+          stats.push(`移速 +${Math.round(TERRAIN.effects.pragmaSpeed * 100)}%`);
+          stats.push(`${dur.sustain}s 耗尽后消散 · 离场 ${dur.recover}s 回充`);
+        } else if (kind === 'leak') {
+          stats.push(`敌我移速 ×${TERRAIN.effects.leakSpeed}`);
+          stats.push('常驻');
+        } else {
+          stats.push(`玩家 -${TERRAIN.effects.crashPlayerDps} HP/s`);
+          stats.push(`敌人 -${TERRAIN.effects.crashEnemyDps} HP/s`);
+          stats.push('击杀无掉落');
+        }
+        return {
+          symbol: def.label,
+          color: def.color,
+          name: def.name,
+          tagline: def.good ? 'buff' : 'risk',
           desc: def.desc,
           stats,
         };

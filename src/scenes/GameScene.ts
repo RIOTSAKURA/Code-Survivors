@@ -4,11 +4,13 @@ import {
   DEPTH,
   ENTRANCE,
   ITEM,
+  MONO_FONT,
   ORB,
   PALETTE,
   PLAYER,
   SHIELD,
   SPAWN,
+  TERRAIN,
   TEX_SCALE,
   THROWER,
   WORLD,
@@ -70,6 +72,10 @@ import {
   rayWidth,
 } from '../data/weapons';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
+import { ZONE_DEFS, generateTerrain, reshuffleZones } from '../data/terrain';
+import type { Terrain, TerrainZone } from '../data/terrain';
+import { isZoneSpent, stepCharge, zoneHazard, zoneMods } from '../systems/terrain';
+import type { ZoneMods } from '../systems/terrain';
 import { Fx } from '../systems/fx';
 import { dampOrbVelocity, homeOrbVelocity, orbTier } from '../systems/loot';
 import { reflectBullet } from '../systems/shield';
@@ -143,6 +149,14 @@ export class GameScene extends Phaser.Scene {
   private orbLifeScale = 1;
   private entrance: BossEntrance | null = null;
   private activeBoss: Enemy | null = null;
+  private terrain!: Terrain;
+  private activeZone: TerrainZone | null = null;
+  private zoneMods: ZoneMods = { speed: 1, cooldown: 1 };
+  private zoneGraphics!: Phaser.GameObjects.Graphics;
+  private zoneHalos: Phaser.GameObjects.Image[] = [];
+  private zoneRings: Phaser.GameObjects.Image[] = [];
+  private nextZoneShuffleAt = 0;
+  private zoneLabels: Phaser.GameObjects.Text[] = [];
   private scratch: Enemy[] = [];
   private scratch2: Enemy[] = [];
   private targetScratch: Enemy[] = [];
@@ -180,6 +194,12 @@ export class GameScene extends Phaser.Scene {
     this.orbLifeScale = this.readQaOrbLife();
     this.entrance = null;
     this.activeBoss = null;
+    this.activeZone = null;
+    this.zoneMods = { speed: 1, cooldown: 1 };
+    this.zoneLabels = [];
+    this.zoneHalos = [];
+    this.zoneRings = [];
+    this.nextZoneShuffleAt = 0;
     this.invulnUntil = 0;
     this.knockVx = 0;
     this.knockVy = 0;
@@ -213,6 +233,16 @@ export class GameScene extends Phaser.Scene {
       .rectangle(WORLD.width / 2, WORLD.height / 2, WORLD.width, WORLD.height)
       .setStrokeStyle(6, 0x89b4fa, 0.25)
       .setDepth(DEPTH.ground);
+
+    const seedParam = Number(new URLSearchParams(window.location.search).get('seed') ?? '0');
+    const seed =
+      Number.isFinite(seedParam) && seedParam > 0
+        ? Math.floor(seedParam)
+        : Math.floor(this.rng.next() * 0xffffffff);
+    this.terrain = generateTerrain(seed);
+    hud.seed = seed;
+    hud.zones = this.terrain.zones.length;
+    this.buildTerrain();
 
     this.rangeGraphics = this.add.graphics().setDepth(DEPTH.ground + 1);
     this.beamGraphics = this.add.graphics().setDepth(DEPTH.beam).setBlendMode(Phaser.BlendModes.ADD);
@@ -261,6 +291,7 @@ export class GameScene extends Phaser.Scene {
       bus.emit(EV.banner, { text: 'npm run survive', sub: 'ENTER THE STACK', ms: 1800 });
     });
     this.fx.burst(this.playerX, this.playerY, PALETTE.cyan, 24, 220, 0.9, 0.9);
+    this.nextZoneShuffleAt = this.run.time + TERRAIN.zoneShuffleEvery;
   }
 
   override update(_time: number, delta: number): void {
@@ -312,6 +343,7 @@ export class GameScene extends Phaser.Scene {
     this.grid.rebuild(this.enemies);
 
     this.updatePlayer(dt);
+    this.updateTerrain(dt);
     this.updateEnemies(dt);
     this.updateWeapons(dt);
     this.updateProjectiles(dt);
@@ -384,6 +416,269 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private buildTerrain(): void {
+    const decor = this.add.graphics().setDepth(DEPTH.ground + 1);
+    for (const piece of this.terrain.decor) {
+      if (piece.kind === 'comment') {
+        decor.fillStyle(0x14141f, 0.42);
+        decor.fillRect(piece.x, piece.y, piece.w, piece.h);
+        decor.lineStyle(1, 0x313244, 0.4);
+        decor.strokeRect(piece.x + 0.5, piece.y + 0.5, piece.w, piece.h);
+
+        decor.fillStyle(0x1b1b28, 0.5);
+        decor.fillRect(piece.x, piece.y, 22, piece.h);
+        decor.lineStyle(1, 0x313244, 0.35);
+        decor.beginPath();
+        decor.moveTo(piece.x + 22.5, piece.y);
+        decor.lineTo(piece.x + 22.5, piece.y + piece.h);
+        decor.strokePath();
+
+        const lineHeight = 13;
+        const rows = Math.max(2, Math.floor((piece.h - 20) / lineHeight));
+        const seedRng = new Rng(piece.seed);
+        for (let row = 0; row < rows; row++) {
+          const y = piece.y + 12 + row * lineHeight;
+          decor.fillStyle(0x585b70, 0.12);
+          decor.fillRect(piece.x + 30, y, piece.w - 44, 3);
+          const codeWidth = Math.max(24, (piece.w - 60) * seedRng.range(0.35, 1));
+          decor.fillStyle(0x7f849c, seedRng.range(0.07, 0.16));
+          decor.fillRect(piece.x + 38, y, codeWidth, 3);
+          decor.fillStyle(0x45475a, 0.16);
+          decor.fillRect(piece.x + 8, y, 6, 3);
+        }
+        decor.lineStyle(2, 0x45475a, 0.55);
+        decor.beginPath();
+        decor.moveTo(piece.x + 14, piece.y + 8);
+        decor.lineTo(piece.x + 14, piece.y + 14);
+        decor.lineTo(piece.x + 20, piece.y + 14);
+        decor.strokePath();
+        decor.beginPath();
+        decor.moveTo(piece.x + piece.w - 20, piece.y + piece.h - 14);
+        decor.lineTo(piece.x + piece.w - 14, piece.y + piece.h - 14);
+        decor.lineTo(piece.x + piece.w - 14, piece.y + piece.h - 8);
+        decor.strokePath();
+      } else if (piece.kind === 'diff') {
+        decor.fillStyle(0x00ff41, 0.05);
+        decor.fillRect(piece.x, piece.y, piece.w, piece.h);
+        decor.fillStyle(0xff0040, 0.04);
+        decor.fillRect(piece.x + 20, piece.y + 5, Math.max(20, piece.w - 60), piece.h);
+      } else if (piece.kind === 'region') {
+        decor.fillStyle(0x89b4fa, 0.028);
+        decor.fillRect(piece.x, piece.y, piece.w, piece.h);
+        decor.lineStyle(1, 0x89b4fa, 0.16);
+        decor.beginPath();
+        decor.moveTo(piece.x, piece.y + 0.5);
+        decor.lineTo(piece.x + piece.w, piece.y + 0.5);
+        decor.strokePath();
+      } else {
+        decor.lineStyle(2, 0x585b70, 0.3);
+        decor.beginPath();
+        decor.moveTo(piece.x, piece.y + 0.5);
+        decor.lineTo(piece.x + piece.w, piece.y + 0.5);
+        decor.strokePath();
+        decor.lineStyle(1, 0x45475a, 0.22);
+        for (let i = 1; i <= 3; i++) {
+          decor.beginPath();
+          decor.moveTo(piece.x + 14 * i, piece.y + i * 4 + 0.5);
+          decor.lineTo(piece.x + piece.w - 14 * i, piece.y + i * 4 + 0.5);
+          decor.strokePath();
+        }
+      }
+    }
+
+    for (const zone of this.terrain.zones) {
+      const def = ZONE_DEFS[zone.kind];
+      const halo = this.add
+        .image(zone.x, zone.y, 'zoneGlow')
+        .setDepth(DEPTH.ground + 1)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(def.color);
+      halo.setDisplaySize(zone.radius * 2, zone.radius * 2);
+      halo.setAlpha(0.5);
+      this.zoneHalos.push(halo);
+
+      const ring = this.add
+        .image(zone.x, zone.y, 'zoneRing')
+        .setDepth(DEPTH.ground + 2)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setTint(def.color);
+      ring.setDisplaySize(zone.radius * 2, zone.radius * 2);
+      this.zoneRings.push(ring);
+
+      const label = this.add
+        .text(zone.x, zone.y - zone.radius + 30, `${def.label} ${def.name}`, {
+          fontFamily: MONO_FONT,
+          fontSize: '14px',
+          color: `#${def.color.toString(16).padStart(6, '0')}`,
+          fontStyle: 'bold',
+          padding: { x: 6, y: 6 },
+        })
+        .setOrigin(0.5)
+        .setDepth(DEPTH.ground + 4);
+      label.setStroke('#0d0d15', 4);
+      label.setAlpha(0.7);
+      this.zoneLabels.push(label);
+    }
+
+    this.zoneGraphics = this.add.graphics().setDepth(DEPTH.ground + 2).setBlendMode(Phaser.BlendModes.ADD);
+    this.drawZones();
+  }
+
+  private drawZones(): void {
+    const time = this.run.time;
+    const g = this.zoneGraphics;
+    g.clear();
+    for (let i = 0; i < this.terrain.zones.length; i++) {
+      const zone = this.terrain.zones[i];
+      const def = ZONE_DEFS[zone.kind];
+      const charge = def.good ? zone.charge : 1;
+      const active = this.activeZone === zone;
+      const strength = 0.35 + 0.65 * charge;
+
+      const spent = isZoneSpent(zone.kind, zone.charge);
+      const halo = this.zoneHalos[i];
+      if (halo) {
+        halo.setVisible(!spent);
+        halo.setAlpha((active ? 0.8 : 0.4) * strength);
+      }
+      const ring = this.zoneRings[i];
+      if (ring) {
+        ring.setVisible(!spent);
+        ring.setRotation(time * 0.06 + zone.id * 0.7);
+        ring.setAlpha((active ? 0.95 : 0.55) * strength);
+      }
+      this.zoneLabels[i].setVisible(!spent);
+      this.zoneLabels[i].setAlpha(active ? 1 : 0.55 + 0.25 * charge);
+    }
+
+    if (this.activeZone) {
+      const zone = this.activeZone;
+      const def = ZONE_DEFS[zone.kind];
+      if (def.good && zone.charge < 0.999) {
+        g.lineStyle(4, def.color, 0.7);
+        g.beginPath();
+        g.arc(zone.x, zone.y, zone.radius - 22, -Math.PI / 2, -Math.PI / 2 + TAU * zone.charge);
+        g.strokePath();
+      }
+    }
+  }
+
+  private reshuffleTerrain(): void {
+    const seed = Math.floor(this.rng.next() * 0xffffffff);
+    const next = reshuffleZones(seed, this.terrain.zones, WORLD, {
+      x: this.playerX,
+      y: this.playerY,
+      radius: PLAYER.radius,
+    });
+    this.terrain.zones = next;
+    for (let i = 0; i < next.length; i++) {
+      const zone = next[i];
+      const def = ZONE_DEFS[zone.kind];
+      const color = `#${def.color.toString(16).padStart(6, '0')}`;
+      const halo = this.zoneHalos[i];
+      if (halo) {
+        halo.setPosition(zone.x, zone.y).setTint(def.color);
+        halo.setDisplaySize(zone.radius * 2, zone.radius * 2);
+      }
+      const ring = this.zoneRings[i];
+      if (ring) {
+        ring.setPosition(zone.x, zone.y).setTint(def.color);
+        ring.setDisplaySize(zone.radius * 2, zone.radius * 2);
+      }
+      const label = this.zoneLabels[i];
+      if (label) {
+        label.setVisible(true);
+        label.setPosition(zone.x, zone.y - zone.radius + 30);
+        label.setText(`${def.label} ${def.name}`);
+        label.setColor(color);
+      }
+      this.zoneHalos[i]?.setVisible(true);
+      this.zoneRings[i]?.setVisible(true);
+    }
+    this.activeZone = null;
+    this.zoneMods = { speed: 1, cooldown: 1 };
+    hud.zone = null;
+    this.cameras.main.flash(200, 137, 180, 250, false);
+    this.beams.push({
+      kind: 'ring',
+      x: this.playerX,
+      y: this.playerY,
+      angle: 0,
+      length: 60,
+      width: 4,
+      spread: 0,
+      color: PALETTE.blue,
+      life: 0.65,
+      maxLife: 0.65,
+      grow: 12,
+    });
+    bus.emit('sfx', 'emp');
+    bus.emit(EV.banner, { text: 'TERRAIN REBUILT', sub: 'code regions recompiled', ms: 1400 });
+  }
+
+  private updateTerrain(dt: number): void {
+    if (this.run.time >= this.nextZoneShuffleAt) {
+      this.nextZoneShuffleAt = this.run.time + TERRAIN.zoneShuffleEvery;
+      this.reshuffleTerrain();
+    }
+    let active: TerrainZone | null = null;
+    let best = Infinity;
+    for (const zone of this.terrain.zones) {
+      if (isZoneSpent(zone.kind, zone.charge)) continue;
+      const dist = Math.hypot(zone.x - this.playerX, zone.y - this.playerY);
+      if (dist <= zone.radius && dist < best) {
+        best = dist;
+        active = zone;
+      }
+    }
+    for (const zone of this.terrain.zones) {
+      const before = zone.charge;
+      zone.charge = stepCharge(zone === active, zone.charge, dt);
+      if (before > 0 && isZoneSpent(zone.kind, zone.charge)) {
+        this.fx.burst(zone.x, zone.y, ZONE_DEFS[zone.kind].color, 26, 320, 0.7, 1);
+        this.fx.text(zone.x, zone.y, `${ZONE_DEFS[zone.kind].label} drained`, '#7f849c', 15);
+        bus.emit('sfx', 'explode');
+      }
+    }
+    this.activeZone = active;
+    this.zoneMods = zoneMods(active ? active.kind : null, active ? active.charge : 0);
+
+    for (const zone of this.terrain.zones) {
+      const hazard = zoneHazard(zone.kind);
+      if (zone.kind !== 'leak' && hazard.enemyDps <= 0) continue;
+      const list = this.grid.query(zone.x, zone.y, zone.radius, this.scratch2);
+      for (let i = 0; i < list.length; i++) {
+        const enemy = list[i];
+        if (enemy.dead) continue;
+        if (Math.hypot(enemy.x - zone.x, enemy.y - zone.y) > zone.radius) continue;
+        if (zone.kind === 'leak') enemy.slowUntil = this.run.time + 0.2;
+        if (hazard.enemyDps > 0) this.damageEnemy(enemy, hazard.enemyDps * dt, false, 0, 0, false);
+      }
+    }
+
+    if (active) {
+      const hazard = zoneHazard(active.kind);
+      if (hazard.playerDps > 0) this.damageOverTime(hazard.playerDps * dt);
+    }
+
+    if (active) {
+      const def = ZONE_DEFS[active.kind];
+      hud.zone = { label: def.label, name: def.name, charge: active.charge, good: def.good };
+    } else {
+      hud.zone = null;
+    }
+    this.drawZones();
+  }
+
+  private damageOverTime(amount: number): void {
+    if (this.run.over || amount <= 0) return;
+    this.run.hp -= amount;
+    if (this.run.hp <= 0) {
+      this.run.hp = 0;
+      this.endRun();
+    }
+  }
+
   private updatePlayer(dt: number): void {
     const stats = this.run.stats;
     let dx = 0;
@@ -397,8 +692,8 @@ export class GameScene extends Phaser.Scene {
       dx /= len;
       dy /= len;
       this.facing = Math.atan2(dy, dx);
-      this.playerX += dx * stats.speed * dt;
-      this.playerY += dy * stats.speed * dt;
+      this.playerX += dx * stats.speed * this.zoneMods.speed * dt;
+      this.playerY += dy * stats.speed * this.zoneMods.speed * dt;
     }
 
     this.knockVx *= Math.pow(0.86, dt * 60);
@@ -456,6 +751,7 @@ export class GameScene extends Phaser.Scene {
           this.throwerVolley(e);
         }
       }
+      if (e.slowUntil !== undefined && e.slowUntil > time) speed *= TERRAIN.effects.leakSpeed;
       if (e.boss) {
         speed *= 1 + (this.bossPhase(e) - 1) * 0.22;
       }
@@ -780,7 +1076,7 @@ export class GameScene extends Phaser.Scene {
         this.weaponTimers.set(id, timer);
         continue;
       }
-      this.weaponTimers.set(id, def.cooldown(level) * stats.cooldownMult);
+      this.weaponTimers.set(id, def.cooldown(level) * stats.cooldownMult * this.zoneMods.cooldown);
       this.fireWeapon(id, level);
     }
   }
@@ -1091,7 +1387,7 @@ export class GameScene extends Phaser.Scene {
       }
       c.fireAt -= dt;
       if (c.fireAt <= 0) {
-        c.fireAt = cloneCooldown(level) * this.run.stats.cooldownMult;
+        c.fireAt = cloneCooldown(level) * this.run.stats.cooldownMult * this.zoneMods.cooldown;
         const target = this.pickTargetsAround(c.x, c.y, SPAWN.engageRange);
         if (!target) continue;
         const angle = Math.atan2(target.y - c.y, target.x - c.x);
@@ -1489,7 +1785,14 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private damageEnemy(e: Enemy, amount: number, showText: boolean, knockX = 0, knockY = 0): void {
+  private damageEnemy(
+    e: Enemy,
+    amount: number,
+    showText: boolean,
+    knockX = 0,
+    knockY = 0,
+    dropLoot = true,
+  ): void {
     if (e.dead) return;
     const crit = this.rng.chance(0.1);
     const dmg = amount * (crit ? 2 : 1);
@@ -1501,20 +1804,20 @@ export class GameScene extends Phaser.Scene {
       e.knockY += knockY * resist;
     }
     if (e.hp <= 0) {
-      this.killEnemy(e);
+      this.killEnemy(e, dropLoot);
       return;
     }
     if (showText || crit) this.fx.damageText(e.x, e.y - e.radius - 6, dmg, crit);
     this.fx.sparks(e.x, e.y, e.color, crit ? 4 : 2);
   }
 
-  private killEnemy(e: Enemy): void {
+  private killEnemy(e: Enemy, dropLoot = true): void {
     if (e.dead) return;
     e.dead = true;
     this.run.kills += 1;
     const def = ENEMY_DEFS[e.type];
     this.fx.burst(e.x, e.y, e.color, e.boss ? 44 : e.elite ? 14 : 8, e.boss ? 380 : 200, 0.6, e.boss ? 1.3 : 0.75);
-    if (!e.summoned) {
+    if (dropLoot && !e.summoned) {
       this.dropOrbs(e.x, e.y, e.xp, e.boss);
       this.dropItem(e.x, e.y);
     }

@@ -148,6 +148,7 @@ export class UIScene extends Phaser.Scene {
   private hpText!: Phaser.GameObjects.Text;
   private statText!: Phaser.GameObjects.Text;
   private loadoutText!: Phaser.GameObjects.Text;
+  private zoneText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
@@ -209,6 +210,12 @@ export class UIScene extends Phaser.Scene {
       color: '#7f849c',
       lineSpacing: 4,
     });
+    this.zoneText = this.add.text(16, 112, '', {
+      fontFamily: MONO_FONT,
+      fontSize: '13px',
+      color: '#00ff41',
+    });
+    this.zoneText.setVisible(false);
     this.timerText = this.add
       .text(0, 14, '00:00', { fontFamily: MONO_FONT, fontSize: '30px', color: '#cdd6f4', fontStyle: 'bold' })
       .setOrigin(0.5, 0);
@@ -567,6 +574,17 @@ export class UIScene extends Phaser.Scene {
     if (loadout !== this.cachedLoadout) {
       this.cachedLoadout = loadout;
       this.loadoutText.setText(loadout);
+    }
+
+    if (hud.zone) {
+      const percent = Math.round(hud.zone.charge * 100);
+      this.zoneText.setVisible(true);
+      this.zoneText.setText(
+        `◈ ${hud.zone.label} ${hud.zone.name} ${hud.zone.good ? percent : ''}%`.replace(' %', '%'),
+      );
+      this.zoneText.setColor(hud.zone.good ? (hud.zone.charge > 0.4 ? '#00ff41' : '#7f849c') : '#ffa500');
+    } else {
+      this.zoneText.setVisible(false);
     }
 
     const timer = formatTime(hud.time);

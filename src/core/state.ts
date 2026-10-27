@@ -44,6 +44,13 @@ export interface BossHud {
   phase: number;
 }
 
+export interface ZoneHud {
+  label: string;
+  name: string;
+  charge: number;
+  good: boolean;
+}
+
 export interface HudState {
   hp: number;
   maxHp: number;
@@ -62,6 +69,9 @@ export interface HudState {
   boss: BossHud | null;
   choices: number;
   confirming: boolean;
+  zone: ZoneHud | null;
+  zones: number;
+  seed: number;
   orbs: number;
   enemies: number;
   items: number;
@@ -85,6 +95,9 @@ export const hud: HudState = {
   boss: null,
   choices: 0,
   confirming: false,
+  zone: null,
+  zones: 0,
+  seed: 0,
   orbs: 0,
   enemies: 0,
   items: 0,
