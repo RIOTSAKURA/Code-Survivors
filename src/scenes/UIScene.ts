@@ -426,7 +426,11 @@ export class UIScene extends Phaser.Scene {
         this.cancelQuit();
         return;
       }
-      if (this.overVisible || hud.paused) this.requestQuit();
+      if (this.overVisible) {
+        this.quitToMenu();
+        return;
+      }
+      if (hud.paused) this.requestQuit();
     });
     this.input.keyboard!.on('keydown-Y', () => {
       if (hud.confirming) this.confirmQuit();

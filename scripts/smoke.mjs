@@ -455,6 +455,18 @@ try {
   const record = await deathPage.evaluate(() => localStorage.getItem('code-survivors:best'));
   const parsed = record ? JSON.parse(record) : null;
   check(parsed !== null && parsed.time > 400, 'best run persisted to localStorage', String(record));
+
+  await deathPage.keyboard.press('KeyQ');
+  await deathPage.waitForTimeout(800);
+  const deathQuit = await deathPage.evaluate(() => ({
+    confirming: window.__hud.confirming,
+    atMenu: Boolean(window.__menu),
+  }));
+  check(
+    deathQuit.confirming === false && deathQuit.atMenu === true,
+    'quitting from the game over screen skips the confirmation',
+    JSON.stringify(deathQuit),
+  );
   await deathPage.close();
 
   const bossPage = await context.newPage();
