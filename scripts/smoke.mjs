@@ -374,6 +374,60 @@ try {
   check(after.time > before.time, 'run still alive', `t=${after.time.toFixed(1)}s hp=${Math.round(after.hp)}`);
   await page.screenshot({ path: join(SHOTS, '5-late-run.png') });
 
+  await page.keyboard.press('KeyP');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('KeyQ');
+  await page.waitForTimeout(400);
+  const asked = await page.evaluate(() => ({
+    confirming: window.__hud.confirming,
+    inGame: !window.__menu,
+  }));
+  check(
+    asked.confirming === true && asked.inGame === true,
+    'quitting from pause asks for confirmation first',
+    JSON.stringify(asked),
+  );
+  await page.screenshot({ path: join(SHOTS, '13-quit-confirm.png') });
+
+  await page.keyboard.press('KeyN');
+  await page.waitForTimeout(300);
+  const cancelled = await page.evaluate(() => ({
+    confirming: window.__hud.confirming,
+    inGame: !window.__menu,
+  }));
+  check(
+    cancelled.confirming === false && cancelled.inGame === true,
+    'cancelling the quit keeps the run',
+    JSON.stringify(cancelled),
+  );
+
+  await page.keyboard.press('KeyQ');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('KeyY');
+  await page.waitForTimeout(900);
+  const quitRecord = await page.evaluate(() => localStorage.getItem('code-survivors:best'));
+  const quitRun = quitRecord ? JSON.parse(quitRecord) : null;
+  check(
+    quitRun !== null && quitRun.time > 20,
+    'confirming the quit settles the run it just played',
+    String(quitRecord),
+  );
+  const backAtMenu = await page
+    .waitForFunction(() => Boolean(window.__menu), null, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  check(backAtMenu, 'quit returns to the menu');
+
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.__hud.time > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(500);
+  await page.keyboard.press('KeyQ');
+  await page.waitForTimeout(400);
+  check(
+    await page.evaluate(() => !window.__menu && !window.__hud.confirming),
+    'Q while playing does not quit',
+  );
+
   await page.close();
 
   const deathPage = await context.newPage();
@@ -399,7 +453,8 @@ try {
   await deathPage.waitForTimeout(900);
   await deathPage.screenshot({ path: join(SHOTS, '7-game-over.png') });
   const record = await deathPage.evaluate(() => localStorage.getItem('code-survivors:best'));
-  check(Boolean(record), 'best run persisted to localStorage', String(record));
+  const parsed = record ? JSON.parse(record) : null;
+  check(parsed !== null && parsed.time > 400, 'best run persisted to localStorage', String(record));
   await deathPage.close();
 
   const bossPage = await context.newPage();

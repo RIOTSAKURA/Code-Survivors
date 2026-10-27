@@ -61,6 +61,7 @@ export interface HudState {
   magnet: number;
   boss: BossHud | null;
   choices: number;
+  confirming: boolean;
   orbs: number;
   enemies: number;
   items: number;
@@ -83,6 +84,7 @@ export const hud: HudState = {
   magnet: 68,
   boss: null,
   choices: 0,
+  confirming: false,
   orbs: 0,
   enemies: 0,
   items: 0,

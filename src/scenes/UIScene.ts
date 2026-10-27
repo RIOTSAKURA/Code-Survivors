@@ -169,6 +169,10 @@ export class UIScene extends Phaser.Scene {
   private overHint!: Phaser.GameObjects.Text;
 
   private pausePanel!: Phaser.GameObjects.Container;
+  private confirmPanel!: Phaser.GameObjects.Container;
+  private confirmBody!: Phaser.GameObjects.Text;
+  private confirmYes!: Phaser.GameObjects.Text;
+  private confirmNo!: Phaser.GameObjects.Text;
 
   private bannerTimer = 0;
   private vignetteAlpha = -1;
@@ -241,6 +245,7 @@ export class UIScene extends Phaser.Scene {
     this.buildPanel();
     this.buildOverPanel();
     this.buildPausePanel();
+    this.buildConfirmPanel();
 
     this.wireEvents();
     applyTextResolution(this);
@@ -321,6 +326,76 @@ export class UIScene extends Phaser.Scene {
     this.pausePanel.setVisible(false);
   }
 
+  private buildConfirmPanel(): void {
+    const bg = this.add.rectangle(0, 0, 560, 250, 0x11111b, 0.96).setOrigin(0.5);
+    bg.setStrokeStyle(1, 0xffa500);
+    const title = this.add
+      .text(0, -88, 'EXIT TO SHELL?', {
+        fontFamily: MONO_FONT,
+        fontSize: '24px',
+        color: '#ffa500',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    const line = this.add
+      .text(0, -52, '本局将立即结算，更好的成绩会保留在最佳纪录里', {
+        fontFamily: MONO_FONT,
+        fontSize: '13px',
+        color: '#a6adc8',
+      })
+      .setOrigin(0.5);
+    this.confirmBody = this.add
+      .text(0, -6, '', {
+        fontFamily: MONO_FONT,
+        fontSize: '16px',
+        color: '#cdd6f4',
+        align: 'center',
+        lineSpacing: 6,
+      })
+      .setOrigin(0.5);
+    this.confirmYes = this.add
+      .text(-120, 74, '[Y] 确认退出', {
+        fontFamily: MONO_FONT,
+        fontSize: '16px',
+        color: '#00ff41',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    this.confirmNo = this.add
+      .text(120, 74, '[N] 取消', {
+        fontFamily: MONO_FONT,
+        fontSize: '16px',
+        color: '#7f849c',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    this.confirmYes.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.confirmQuit());
+    this.confirmNo.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.cancelQuit());
+    this.confirmPanel = this.add.container(0, 0, [bg, title, line, this.confirmBody, this.confirmYes, this.confirmNo]);
+    this.confirmPanel.setVisible(false);
+  }
+
+  private requestQuit(): void {
+    hud.confirming = true;
+    this.confirmBody.setText(
+      `存活 ${formatTime(hud.time)} · 击杀 ${hud.kills} · LVL ${hud.level}`,
+    );
+    this.pausePanel.setVisible(false);
+    this.confirmPanel.setVisible(true);
+  }
+
+  private cancelQuit(): void {
+    hud.confirming = false;
+    this.confirmPanel.setVisible(false);
+    this.pausePanel.setVisible(hud.paused && !this.overVisible && !hud.gameOver && !hud.confirming);
+  }
+
+  private confirmQuit(): void {
+    hud.confirming = false;
+    this.confirmPanel.setVisible(false);
+    this.quitToMenu();
+  }
+
   private wireEvents(): void {
     const registered: Array<[string, (payload: unknown) => void]> = [];
     const on = <T>(event: string, fn: (payload: T) => void) => {
@@ -346,7 +421,19 @@ export class UIScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-R', () => {
       if (this.overVisible) this.restart();
     });
-    this.input.keyboard!.on('keydown-Q', () => this.quitToMenu());
+    this.input.keyboard!.on('keydown-Q', () => {
+      if (hud.confirming) {
+        this.cancelQuit();
+        return;
+      }
+      if (this.overVisible || hud.paused) this.requestQuit();
+    });
+    this.input.keyboard!.on('keydown-Y', () => {
+      if (hud.confirming) this.confirmQuit();
+    });
+    this.input.keyboard!.on('keydown-N', () => {
+      if (hud.confirming) this.cancelQuit();
+    });
   }
 
   private pick(index: number): void {
@@ -361,6 +448,9 @@ export class UIScene extends Phaser.Scene {
   }
 
   private quitToMenu(): void {
+    if (!this.overVisible && hud.time > 0) {
+      writeBest({ time: hud.time, kills: hud.kills, level: hud.level });
+    }
     this.hideOverlay();
     this.scene.stop('Game');
     this.scene.stop('UI');
@@ -369,9 +459,11 @@ export class UIScene extends Phaser.Scene {
 
   private hideOverlay(): void {
     this.overVisible = false;
+    hud.confirming = false;
     this.overPanel.setVisible(false);
     this.panel.setVisible(false);
     this.pausePanel.setVisible(false);
+    this.confirmPanel.setVisible(false);
   }
 
   private showLevelUp(payload: LevelPayload): void {
@@ -482,7 +574,7 @@ export class UIScene extends Phaser.Scene {
     const xpRatio = Math.max(0, Math.min(1, hud.xp / Math.max(1, hud.xpNeed)));
     this.xpBarFill.width = viewWidth(this.cameras.main) * xpRatio;
 
-    this.pausePanel.setVisible(hud.paused && !this.overVisible && !hud.gameOver);
+    this.pausePanel.setVisible(hud.paused && !this.overVisible && !hud.gameOver && !hud.confirming);
 
     if (hud.boss && !this.overVisible) {
       const ratio = Math.max(0, hud.boss.hp / hud.boss.maxHp);
@@ -542,6 +634,7 @@ export class UIScene extends Phaser.Scene {
 
     this.overPanel.setPosition(w / 2, h / 2);
     this.pausePanel.setPosition(w / 2, h / 2);
+    this.confirmPanel.setPosition(w / 2, h / 2);
     this.bannerText.setPosition(w / 2, h * 0.2);
     this.bannerSub.setPosition(w / 2, h * 0.2 + 30);
 

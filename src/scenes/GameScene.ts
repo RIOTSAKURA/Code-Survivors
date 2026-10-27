@@ -233,7 +233,7 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.Key
     >;
     const onPauseKey = () => {
-      if (!this.run.over && !this.choosing) this.togglePause();
+      if (!this.run.over && !this.choosing && !hud.confirming) this.togglePause();
     };
     keyboard.on('keydown-P', onPauseKey);
     keyboard.on('keydown-ESC', onPauseKey);
