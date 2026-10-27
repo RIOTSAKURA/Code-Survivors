@@ -456,6 +456,7 @@ export class UIScene extends Phaser.Scene {
       writeBest({ time: hud.time, kills: hud.kills, level: hud.level });
     }
     this.hideOverlay();
+    this.scene.stop('Codex');
     this.scene.stop('Game');
     this.scene.stop('UI');
     this.scene.start('Menu');

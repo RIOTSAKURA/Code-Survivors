@@ -82,6 +82,9 @@ function createGame(): void {
     }
   };
 
+  (window as unknown as { __scenes: () => string[] }).__scenes = () =>
+    game.scene.scenes.filter((scene) => scene.scene.isActive()).map((scene) => scene.scene.key);
+
   game.scale.setZoom(1 / DPR);
   applyViewport();
   window.addEventListener('resize', applyViewport);

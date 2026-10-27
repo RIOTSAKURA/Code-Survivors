@@ -168,6 +168,17 @@ export class MenuScene extends Phaser.Scene {
       this.scene.start('Game');
       this.scene.launch('UI');
     };
+    const startWidth = viewWidth(this.cameras.main);
+    const startHeight = viewHeight(this.cameras.main);
+    this.add
+      .zone(0, 0, startWidth, startHeight)
+      .setOrigin(0)
+      .setDepth(-1)
+      .setInteractive(
+        new Phaser.Geom.Rectangle(0, 0, startWidth, startHeight),
+        Phaser.Geom.Rectangle.Contains,
+      )
+      .once('pointerdown', start);
     const openCodex = () => {
       sfx.unlock();
       sfx.play('choose');
@@ -177,7 +188,6 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard!.once('keydown-SPACE', start);
     this.input.keyboard!.once('keydown-C', openCodex);
     codex.setInteractive({ useHandCursor: true }).on('pointerdown', openCodex);
-    this.input.once('pointerdown', start);
 
     applyTextResolution(this);
     this.layout();

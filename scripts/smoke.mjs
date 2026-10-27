@@ -307,6 +307,20 @@ try {
     `reopened=${codexReopened?.entries} paged=${codexPaged?.page}`,
   );
 
+  const codexClick = await (async () => {
+    await page.mouse.click(Math.floor(page.viewportSize().width / 2), Math.floor(page.viewportSize().height / 2) + 108);
+    await page.waitForTimeout(700);
+    const active = await page.evaluate(() => window.__scenes?.() ?? []);
+    await page.keyboard.press('KeyC');
+    await page.waitForTimeout(500);
+    return active;
+  })();
+  check(
+    codexClick.length === 1 && codexClick[0] === 'Codex',
+    'clicking the codex line opens only the codex',
+    JSON.stringify(codexClick),
+  );
+
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__hud.choices > 0, null, { timeout: 20000 });
   await page.waitForTimeout(200);
@@ -374,8 +388,17 @@ try {
   check(after.time > before.time, 'run still alive', `t=${after.time.toFixed(1)}s hp=${Math.round(after.hp)}`);
   await page.screenshot({ path: join(SHOTS, '5-late-run.png') });
 
+  await settle(page);
   await page.keyboard.press('KeyP');
-  await page.waitForTimeout(300);
+  const paused = await page
+    .waitForFunction(() => window.__hud.paused === true, null, { timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!paused) {
+    await page.waitForTimeout(500);
+    await page.keyboard.press('KeyP');
+    await page.waitForFunction(() => window.__hud.paused === true, null, { timeout: 3000 });
+  }
   await page.keyboard.press('KeyQ');
   await page.waitForTimeout(400);
   const asked = await page.evaluate(() => ({
@@ -461,11 +484,18 @@ try {
   const deathQuit = await deathPage.evaluate(() => ({
     confirming: window.__hud.confirming,
     atMenu: Boolean(window.__menu),
+    codex: window.__codex ?? null,
+    scenes: window.__scenes?.() ?? [],
   }));
   check(
     deathQuit.confirming === false && deathQuit.atMenu === true,
     'quitting from the game over screen skips the confirmation',
     JSON.stringify(deathQuit),
+  );
+  check(
+    deathQuit.codex === null && deathQuit.scenes.length === 1 && deathQuit.scenes[0] === 'Menu',
+    'quitting leaves only the menu running',
+    JSON.stringify(deathQuit.scenes),
   );
   await deathPage.close();
 

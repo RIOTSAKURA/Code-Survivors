@@ -23,6 +23,10 @@ land in `screenshots/` (gitignored).
 
 ## Release and commit conventions
 
+- **Never push before the user has verified the change.** Implement it, run the suite, report what
+  to try, and stop there. A push needs either an explicit instruction from the user or their
+  confirmation that they tested it; an unverified change stays local. This outranks every other
+  rule in this file — when in doubt, do not push.
 - **One commit per change, and it carries the version bump itself. Never add a separate
   `chore: release ...` commit.**
 - Which bump a change gets:
@@ -124,6 +128,8 @@ land in `screenshots/` (gitignored).
 - `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
 - `window.__menu` — `{ marchers, particles }` for the menu's background swarm, so the smoke test can
   tell whether the animation is actually running.
+- `window.__scenes` — the keys of every active scene, so tests can catch a scene left running
+  underneath another one (a stale scene keeps drawing above whatever starts next).
 - `window.__codex` — the open codex page (`{ page, pageIndex, entries }`) or undefined when closed;
   set by `CodexScene` so the smoke test can assert the codex renders every entry.
 
