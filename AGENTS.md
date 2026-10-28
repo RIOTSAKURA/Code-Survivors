@@ -47,8 +47,15 @@ land in `screenshots/` (gitignored).
   ```bash
   npm version minor --no-git-tag-version    # or patch for a fix-only commit
   npm run typecheck && npm test && npm run smoke
-  git add -A && git commit -m "feat: <what> (vX.Y.0)" && git push
+  git add -A && git commit -m "feat: <what> (vX.Y.0)"
+  git tag -a vX.Y.0 -m "vX.Y.0"
+  git push && git push origin vX.Y.0
   ```
+
+- **Every versioned commit gets an annotated `vX.Y.Z` git tag**, pushed alongside the branch, so each
+  release can be browsed, compared and rolled back to on GitHub. The tag name must match
+  `package.json` exactly (the same string the page corner shows). Docs-only commits bump nothing and
+  therefore carry no tag.
 
 - The version shown in the page corner is read from `package.json` via the `__APP_VERSION__` Vite
   define, so bumping the version is the only step needed for the label to follow.
