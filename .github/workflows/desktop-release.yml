@@ -1,0 +1,97 @@
+name: Desktop release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright-core install --with-deps chrome
+      - run: npm run smoke
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: mac
+            arch: arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+          - os: windows-latest
+            platform: win
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: node -e 'if (process.env.GITHUB_REF_NAME !== "v" + JSON.parse(require("fs").readFileSync("package.json")).version) process.exit(1)'
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Package
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Test packaged application
+        run: npm run desktop:smoke
+        env:
+          DESKTOP_PACKAGED: '1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          (cd release && sha256sum Code-Survivors-* > SHA256SUMS.txt)
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "Code Survivors $RELEASE_TAG" --generate-notes --notes "Desktop installers have no trusted publisher signature or Apple notarization; macOS apps use ad-hoc signing. macOS Gatekeeper or Windows SmartScreen may show a verification warning. Choose mac-arm64 for Apple Silicon, mac-x64 for Intel Macs, or win-x64 for Windows. SHA256SUMS.txt contains download checksums." --draft
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

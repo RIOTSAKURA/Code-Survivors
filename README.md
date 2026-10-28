@@ -16,17 +16,63 @@
 
 ## 运行
 
+### 桌面版（macOS / Windows）
+
+从 [GitHub Releases](https://github.com/RIOTSAKURA/Code-Survivors/releases) 下载对应系统的安装包。首次桌面版本需要维护者推送版本标签、等待构建成功后才会出现在这里。
+
+| 系统 | 下载文件 | 安装 |
+| --- | --- | --- |
+| macOS Apple Silicon（M 系列） | `Code-Survivors-版本-mac-arm64.dmg` | 打开后拖到 Applications |
+| macOS Intel | `Code-Survivors-版本-mac-x64.dmg` | 打开后拖到 Applications |
+| Windows x64 | `Code-Survivors-版本-win-x64.exe` | 运行安装向导 |
+
+桌面版自带运行环境，无需 Node.js 或浏览器，安装后可离线游玩。最高记录保存在应用自己的本地数据目录，与浏览器版独立。macOS 另外提供 ZIP 包。
+
+当前安装包没有受信任的发行者签名或 Apple 公证；macOS 仅使用无需证书的 ad-hoc 签名，以保证 Apple Silicon 应用的完整性要求。macOS Gatekeeper / Windows SmartScreen 可能显示验证提示。仅在确认文件来自本仓库 Release 后，使用系统提供的允许打开选项；不要全局关闭系统安全检查。正式签名发布需要另行配置证书。
+
+### 浏览器开发
+
 ```bash
 npm install
 npm run dev        # http://localhost:5173
 ```
 
-生产构建（`dist/` 可直接静态部署，含 `file://` 打开）：
+生产构建（`dist/` 可静态部署；浏览器请通过 HTTP 服务访问）：
 
 ```bash
 npm run build
 npm run preview
 ```
+
+### 桌面开发与打包
+
+建议使用 Node.js 24 LTS，桌面工具链要求 Node.js 22.12 或更新版本。
+
+```bash
+npm ci
+npm run desktop          # 构建并打开 Electron 窗口
+npm run desktop:pack     # 生成当前系统的未安装应用目录
+npm run desktop:dist     # 生成当前系统的分发包，输出到 release/
+npm run desktop:smoke    # 检查桌面启动、字体、隔离、战斗和暂停（先 build）
+```
+
+macOS 安装包在 Mac 上构建，Windows 安装包在 Windows 上构建。桌面窗口运行本地打包资源，不依赖 Vite 服务。渲染进程开启 sandbox 和 contextIsolation，关闭 Node.js 集成。
+
+### GitHub 自动发布
+
+`.github/workflows/desktop-release.yml` 在推送 `v*` 标签时分别构建 macOS arm64、macOS x64、Windows x64；全部构建及桌面检查通过后，将安装包上传并公开到对应 GitHub Release。标签必须与 `package.json` 版本完全对应。
+
+也可以在 Actions 页面手动运行 **Desktop release**：仅生成可下载的构建产物，不发布 Release。
+
+请先完成本地验证，并由用户确认后再推送。以本次版本为例，将版本更新与功能改动放在同一提交，再创建并推送附注标签：
+
+```bash
+git tag -a v1.8.0 -m "v1.8.0"
+git push origin HEAD
+git push origin v1.8.0
+```
+
+工作流通过仓库内置的 `GITHUB_TOKEN` 上传，不需要个人访问令牌；仓库需允许 GitHub Actions 运行。它不会自动提交、打标签或推送代码。
 
 ## 操作
 

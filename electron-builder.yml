@@ -1,0 +1,28 @@
+appId: io.github.riotsakura.code-survivors
+productName: Code Survivors
+copyright: Code Survivors contributors
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - '!node_modules/**/*'
+asar: true
+artifactName: Code-Survivors-${version}-${os}-${arch}.${ext}
+mac:
+  category: public.app-category.action-games
+  identity: '-'
+  notarize: false
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  deleteAppDataOnUninstall: false
