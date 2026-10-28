@@ -62,7 +62,7 @@ macOS 安装包在 Mac 上构建，Windows 安装包在 Windows 上构建。桌�
 
 `.github/workflows/desktop-release.yml` 在推送 `v*` 标签时分别构建 macOS arm64、macOS x64、Windows x64；全部构建及桌面检查通过后，将安装包上传并公开到对应 GitHub Release。标签必须与 `package.json` 版本完全对应。
 
-也可以在 Actions 页面手动运行 **Desktop release**：仅生成可下载的构建产物，不发布 Release。
+推送 `main` 或在 Actions 页面手动运行 **Desktop release** 时，仅生成可下载的构建产物，不发布 Release。修复提交推送后会自动验证，无需重新运行仍指向旧提交的失败任务。
 
 请先完成本地验证，并由用户确认后再推送。以本次版本为例，将版本更新与功能改动放在同一提交，再创建并推送附注标签：
 
@@ -136,6 +136,10 @@ npm run smoke      # 用本机 Chrome headless 跑完整游戏并断言（需先
 ```
 
 `npm run smoke` 会真实启动游戏并检查：启动 → **图鉴翻页与返回** → 开局选武器 → 击杀/升级/构筑成长 → 暂停时钟冻结 → 视口缩放 → 帧率 → 掉落规则（原地留存/移动可拾取/超时消失）→ 死亡结算与记录持久化 → Boss 过场静帧、清场、召唤小怪、无掉落与二阶段弹幕，同时断言浏览器控制台零报错，并把截图写入 `screenshots/`。
+
+本机烟测默认要求普通视口和 HiDPI 都达到 30 FPS。GitHub 共享 runner 使用 `SMOKE_PERFORMANCE=report`：记录帧率并检查动画仍在推进，但不将虚拟机帧率当作玩家设备的性能验收；其他功能断言仍然有效。CI 的总测试预算为 15 分钟，失败时可在 `browser-diagnostics` 构建产物中查看日志和截图。可通过 `SMOKE_BROWSER_PATH` 指定已安装的 Chrome / Chromium 可执行文件。
+
+中文字体烟测将实际渲染结果与打包的字体文件逐像素比较，不要求它与操作系统字体有固定差异。Boss 场景使用固定地图和较小视口，玩家原地迎战，并按模拟时间观察战斗。巡逻转向和拾取测量也按模拟时间推进，避免低帧率下移动距离不足。
 
 ### QA 跳过参数
 

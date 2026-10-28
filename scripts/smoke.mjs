@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -48,7 +48,7 @@ const launchOptions = {
   headless: true,
   args: ['--no-sandbox', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
 };
-const chromePath = CHROME_CANDIDATES.find((p) => existsSync(p));
+const chromePath = process.env.SMOKE_BROWSER_PATH ?? CHROME_CANDIDATES.find((p) => existsSync(p));
 if (chromePath) launchOptions.executablePath = chromePath;
 else launchOptions.channel = 'chrome';
 
@@ -56,6 +56,17 @@ const failures = [];
 const check = (ok, label, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? `  ${detail}` : ''}`);
   if (!ok) failures.push(label);
+};
+
+const performanceMode = process.env.SMOKE_PERFORMANCE ?? 'assert';
+if (!['assert', 'report'].includes(performanceMode)) throw new Error('SMOKE_PERFORMANCE must be assert or report');
+const checkFps = (fps, label) => {
+  if (performanceMode === 'report') {
+    console.log(`METRIC  ${label}: ${fps} fps (report only; shared CI runner)`);
+    check(Number.isFinite(fps) && fps > 0, `${label}: animation advances`, `${fps} fps`);
+  } else {
+    check(fps >= 30, label, `${fps} fps`);
+  }
 };
 
 const readHud = (page) => page.evaluate(() => ({ ...window.__hud }));
@@ -131,8 +142,8 @@ watchdog.unref?.();
 const play = async (page, seconds, { move = true } = {}) => {
   const keys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   let index = 0;
-  let lastSwitch = Date.now();
   const from = await readHud(page);
+  let lastSwitch = from.time;
   const targetTime = from.time + seconds;
   const deadline = Date.now() + seconds * 5000;
   if (move) await page.keyboard.down(keys[0]);
@@ -141,8 +152,8 @@ const play = async (page, seconds, { move = true } = {}) => {
     if (hud.gameOver || hud.time >= targetTime) break;
     if (hud.choices > 0) await page.keyboard.press('Digit1');
     await page.waitForTimeout(100);
-    if (move && Date.now() - lastSwitch > 900) {
-      lastSwitch = Date.now();
+    if (move && hud.time - lastSwitch > 0.9) {
+      lastSwitch = hud.time;
       await page.keyboard.up(keys[index]);
       index = (index + 1) % keys.length;
       await page.keyboard.down(keys[index]);
@@ -202,7 +213,16 @@ try {
     `bundled ink=${fonts.bundled}px system ink=${fonts.system}px`,
   );
 
-  const cjk = await page.evaluate(() => {
+  const cjkFile = (await readdir(join(DIST, 'assets'))).find((file) => /^cjk-noto-sans-sc-700-.*\.woff2$/.test(file));
+  if (!cjkFile) throw new Error('Bundled CJK bold font is missing from dist/assets');
+  const cjk = await page.evaluate(async (fontUrl) => {
+    const response = await fetch(fontUrl);
+    if (!response.ok) throw new Error(`CJK reference font failed to load: ${response.status}`);
+    const reference = new FontFace('SmokeCjkReference', await response.arrayBuffer(), { weight: '700' });
+    await reference.load();
+    document.fonts.add(reference);
+    const text = '热修复 全量抓取 强制终止';
+    const loaded = await document.fonts.load('700 32px "Noto Sans SC"', text);
     const ink = (family) => {
       const canvas = document.createElement('canvas');
       canvas.width = 260;
@@ -213,29 +233,34 @@ try {
       ctx.fillStyle = '#fff';
       ctx.font = `700 32px ${family}`;
       ctx.textBaseline = 'top';
-      ctx.fillText('热修复 全量抓取 强制终止', 4, 4);
+      ctx.fillText(text, 4, 4);
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
       let painted = 0;
       for (let i = 0; i < data.length; i += 4) if (data[i] > 128) painted++;
-      return painted;
+      return { painted, pixels: data };
     };
+    const bundled = ink('"Noto Sans SC"');
+    const expected = ink('"SmokeCjkReference"');
+    document.fonts.delete(reference);
     return {
       faces: [...document.fonts]
         .filter((face) => face.family.includes('Noto Sans SC'))
         .map((face) => `${face.family}/${face.weight}/${face.status}`),
-      bundled: ink('"Noto Sans SC"'),
-      system: ink('sans-serif'),
+      loaded: loaded.some((face) => face.family.includes('Noto Sans SC') && face.status === 'loaded'),
+      bundled: bundled.painted,
+      reference: expected.painted,
+      matches: bundled.pixels.every((value, index) => value === expected.pixels[index]),
     };
-  });
+  }, `/assets/${cjkFile}`);
   check(
     cjk.faces.some((face) => face.endsWith('loaded')),
     'ships the CJK glyphs the UI uses instead of borrowing the OS font',
     `${cjk.faces.join(' ')}`,
   );
   check(
-    Math.abs(cjk.bundled - cjk.system) / cjk.system > 0.02,
+    cjk.loaded && cjk.bundled > 0 && cjk.matches,
     'chinese text renders with the bundled subset',
-    `bundled ink=${cjk.bundled}px system ink=${cjk.system}px`,
+    `bundled ink=${cjk.bundled}px reference ink=${cjk.reference}px exact match=${cjk.matches}`,
   );
 
   const menuSwarm = await page.evaluate(() => window.__menu ?? null);
@@ -390,7 +415,7 @@ try {
   check((await readHud(page)).paused === false, 'resume via keyboard');
 
   const fps = await readFps(page);
-  check(fps >= 30, 'frame rate healthy mid run', `${fps} fps`);
+  checkFps(fps, 'frame rate healthy mid run');
 
   await page.setViewportSize({ width: 900, height: 620 });
   await page.waitForTimeout(700);
@@ -519,12 +544,13 @@ try {
   await deathPage.close();
 
   const bossPage = await context.newPage();
+  await bossPage.setViewportSize({ width: 960, height: 640 });
   bossPage.on('pageerror', (e) => errors.push(`pageerror(boss): ${e.message}`));
-  await bossPage.goto(`http://localhost:${PORT}/?skip=88`, { waitUntil: 'load' });
+  await bossPage.goto(`http://localhost:${PORT}/?skip=88&seed=123456`, { waitUntil: 'load' });
   await bossPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
   await bossPage.waitForTimeout(700);
   await bossPage.keyboard.press('Enter');
-  await bossPage.waitForTimeout(1400);
+  await bossPage.waitForFunction(() => window.__hud.choices > 0);
   await bossPage.keyboard.press('Digit1');
   const skipped = await readHud(bossPage);
   check(skipped.level >= 5 && skipped.weapons.length >= 3, 'qa skip builds a mid run', `lvl=${skipped.level} w=${skipped.weapons.length}`);
@@ -537,20 +563,15 @@ try {
   let minOrbsAfterBoss = Infinity;
   let frozenSamples = 0;
   let lastRunTime = null;
-  const orbitKeys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
-  let kiteIndex = 0;
-  await bossPage.keyboard.down(orbitKeys[0]);
-  let bossElapsedMs = 0;
+  let bossCombatStart = null;
+  let bossLowestHp = Infinity;
   let enemiesBeforePhase2 = 0;
   let phase2Enemies = null;
   let phase2Peak = 0;
   let maxOrbsInFight = 0;
   let minEnemiesInFight = Infinity;
   let maxEnemiesInFight = 0;
-  await bossPage.keyboard.down('KeyD');
-  const bossDeadline = Date.now() + 45000;
-  let holding = null;
-  let holdTick = 0;
+  const bossDeadline = Date.now() + 150000;
   while (Date.now() < bossDeadline) {
     const hud = await readHud(bossPage);
     if (hud.gameOver) {
@@ -563,13 +584,14 @@ try {
     if (hud.choices > 0) await bossPage.keyboard.press('Digit1');
     if (hud.boss) {
       bossSeen = bossSeen ?? { ...hud.boss };
-      bossElapsedMs += 150;
+      bossCombatStart = bossCombatStart ?? hud.time;
+      bossLowestHp = Math.min(bossLowestHp, hud.boss.hp);
       minOrbsAfterBoss = Math.min(minOrbsAfterBoss, hud.orbs);
       if (lastRunTime !== null && Math.abs(hud.time - lastRunTime) < 0.01) frozenSamples++;
       if (hud.boss.hp < hud.boss.maxHp * 0.85) bossTookDamage = true;
       if (hud.boss.phase >= 2) reachedPhase2 = true;
       if (hud.boss.phase < 2) enemiesBeforePhase2 = hud.enemies;
-      if (bossElapsedMs > 3000) {
+      if (hud.time > bossCombatStart) {
         maxOrbsInFight = Math.max(maxOrbsInFight, hud.orbs);
         minEnemiesInFight = Math.min(minEnemiesInFight, hud.enemies);
         maxEnemiesInFight = Math.max(maxEnemiesInFight, hud.enemies);
@@ -580,22 +602,12 @@ try {
       }
     }
     lastRunTime = hud.time;
-    if (holding !== null) {
-      await bossPage.keyboard.up(holding);
-      holding = null;
-    }
     await bossPage.waitForTimeout(150);
-    if (++holdTick % 8 === 0) {
-      await bossPage.keyboard.up(orbitKeys[kiteIndex]);
-      kiteIndex = (kiteIndex + 1) % orbitKeys.length;
-      await bossPage.keyboard.down(orbitKeys[kiteIndex]);
-    }
     if (hud.boss && hud.boss.hp < hud.boss.maxHp * 0.5) break;
+    if (bossCombatStart !== null && hud.time - bossCombatStart >= 45) break;
   }
-  if (holding !== null) await bossPage.keyboard.up(holding);
-  await bossPage.keyboard.up(orbitKeys[kiteIndex]);
   check(Boolean(bossSeen), 'segfault boss spawns and shows a health bar', bossSeen ? bossSeen.name : 'never seen');
-  if (!reachedPhase2) console.log('SKIP  boss phase progression: the test player died in phase 1');
+  if (!reachedPhase2) console.log(`SKIP  boss phase progression: ${bossRunDied ? 'player died' : 'measurement window ended'} in phase 1`);
   check(
     minOrbsAfterBoss <= 3,
     'boss entrance emp wipes every orb on the field',
@@ -611,7 +623,7 @@ try {
     'the entrance clears every normal bug from the field',
     `fewest enemies during the fight: ${minEnemiesInFight}`,
   );
-  check(bossTookDamage, 'boss takes damage from the player');
+  check(bossTookDamage, 'boss loses at least 15% health during combat', `lowest hp=${bossLowestHp} max=${bossSeen?.maxHp}`);
   if (reachedPhase2) {
     check(
       maxEnemiesInFight > 1,
@@ -624,14 +636,14 @@ try {
       `enemies ${phase2Enemies} -> ${phase2Peak} right after the phase change`,
     );
   } else {
-    console.log('SKIP  phase 2 checks: the test player died before the boss enraged');
+    console.log('SKIP  phase 2 checks: phase 2 was not reached in this run');
   }
   check(
     maxOrbsInFight <= 1,
     'nothing drops loot while the boss is alive',
     `most orbs on the ground during the fight: ${maxOrbsInFight}`,
   );
-  if (!reachedPhase2) console.log('SKIP  boss reaches phase 2 (the test player died first)');
+  if (!reachedPhase2) console.log('SKIP  boss reaches phase 2 (see combat outcome above)');
   await bossPage.screenshot({ path: join(SHOTS, '6-boss.png') });
   await bossPage.close();
 
@@ -674,13 +686,13 @@ try {
   await play(hidpiPage, 12, { move: false });
   await hidpiPage.keyboard.up('KeyD');
   const hidpiFps = await readFps(hidpiPage);
-  check(hidpiFps >= 30, 'frame rate healthy at dpr 2', `${hidpiFps} fps`);
+  checkFps(hidpiFps, 'frame rate healthy at dpr 2');
   await hidpiPage.screenshot({ path: join(SHOTS, '10-hidpi.png') });
   await hidpiContext.close();
 
   const lootPage = await context.newPage();
   lootPage.on('pageerror', (e) => errors.push(`pageerror(loot): ${e.message}`));
-  await lootPage.goto(`http://localhost:${PORT}/?skip=120`, { waitUntil: 'load' });
+  await lootPage.goto(`http://localhost:${PORT}/?skip=120&seed=123456`, { waitUntil: 'load' });
   await lootPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
   await lootPage.waitForTimeout(700);
   await lootPage.keyboard.press('Enter');
@@ -703,16 +715,16 @@ try {
 
   const sweepKeys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   let sweepIndex = 0;
-  let lastSweepSwitch = Date.now();
+  let lastSweepSwitch = still.time;
   await lootPage.keyboard.down(sweepKeys[0]);
-  const sweepDeadline = Date.now() + 10000;
+  const sweepDeadline = Date.now() + 90000;
   while (Date.now() < sweepDeadline) {
     const hud = await readHud(lootPage);
-    if (hud.gameOver) break;
+    if (hud.gameOver || hud.time - still.time >= 10) break;
     if (hud.choices > 0) await lootPage.keyboard.press('Digit1');
     await lootPage.waitForTimeout(100);
-    if (Date.now() - lastSweepSwitch > 1100) {
-      lastSweepSwitch = Date.now();
+    if (hud.time - lastSweepSwitch > 1.1) {
+      lastSweepSwitch = hud.time;
       await lootPage.keyboard.up(sweepKeys[sweepIndex]);
       sweepIndex = (sweepIndex + 1) % sweepKeys.length;
       await lootPage.keyboard.down(sweepKeys[sweepIndex]);
