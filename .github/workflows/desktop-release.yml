@@ -75,9 +75,19 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Test packaged application
-        run: npm run desktop:smoke
+        shell: bash
+        run: npm run desktop:smoke 2>&1 | tee desktop-smoke-output.log
         env:
           DESKTOP_PACKAGED: '1'
+      - name: Upload desktop diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: ignore
+          path: |
+            desktop-smoke-output.log
+            screenshots/desktop/
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
