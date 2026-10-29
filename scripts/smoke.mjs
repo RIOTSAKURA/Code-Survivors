@@ -499,24 +499,27 @@ try {
 
   const deathPage = await context.newPage();
   deathPage.on('pageerror', (e) => errors.push(`pageerror(death): ${e.message}`));
-  await deathPage.goto(`http://localhost:${PORT}/?skip=420`, { waitUntil: 'load' });
+  await deathPage.goto(`http://localhost:${PORT}/?skip=420&seed=123456`, { waitUntil: 'load' });
   await deathPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
   await deathPage.waitForTimeout(700);
   await deathPage.keyboard.press('Enter');
   await deathPage.waitForTimeout(1400);
   await deathPage.keyboard.press('Digit1');
   let died = false;
-  const deathDeadline = Date.now() + 40000;
+  let deathHud = await readHud(deathPage);
+  const deathFrom = deathHud.time;
+  const deathDeadline = Date.now() + 40 * 5000;
   while (Date.now() < deathDeadline) {
-    const hud = await readHud(deathPage);
-    if (hud.gameOver) {
+    deathHud = await readHud(deathPage);
+    if (deathHud.gameOver) {
       died = true;
       break;
     }
-    if (hud.choices > 0) await deathPage.keyboard.press('Digit1');
+    if (deathHud.choices > 0) await deathPage.keyboard.press('Digit1');
+    if (deathHud.time - deathFrom >= 40) break;
     await deathPage.waitForTimeout(200);
   }
-  check(died, 'late game overwhelms a stationary player');
+  check(died, 'late game overwhelms a stationary player', `survived ${(deathHud.time - deathFrom).toFixed(1)}s of 40s sim`);
   await deathPage.waitForTimeout(900);
   await deathPage.screenshot({ path: join(SHOTS, '7-game-over.png') });
   const record = await deathPage.evaluate(() => localStorage.getItem('code-survivors:best'));
