@@ -13,9 +13,10 @@
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
     "font:subset": "node scripts/subset-cjk.mjs",
+    "icon:build": "node scripts/build-icon.mjs",
     "desktop": "npm run build && electron .",
-    "desktop:pack": "npm run build && electron-builder --dir --publish never",
-    "desktop:dist": "npm run build && electron-builder --publish never",
+    "desktop:pack": "npm run build && npm run icon:build && electron-builder --dir --publish never",
+    "desktop:dist": "npm run build && npm run icon:build && electron-builder --publish never",
     "desktop:smoke": "node scripts/desktop-smoke.mjs"
   },
   "dependencies": {

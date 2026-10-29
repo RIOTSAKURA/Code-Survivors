@@ -1,6 +1,7 @@
 appId: io.github.riotsakura.code-survivors
 productName: Code Survivors
 copyright: Code Survivors contributors
+icon: build/icon.png
 directories:
   output: release
 files:
