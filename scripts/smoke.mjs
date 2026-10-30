@@ -70,6 +70,7 @@ const checkFps = (fps, label) => {
 };
 
 const readHud = (page) => page.evaluate(() => ({ ...window.__hud }));
+const findEvent = (hud, kind) => (hud.events ?? []).find((event) => event.kind === kind) ?? null;
 const xpNeed = (level) => Math.floor(8 + level * 2 + Math.pow(level, 1.65));
 
 const cumulativeXp = (level) => {
@@ -313,9 +314,9 @@ try {
   const codexClosed = await page.evaluate(() => window.__codex ?? null);
   check(
     codexWeapons?.entries === 6 &&
-      codexBugs?.entries === 7 &&
+      codexBugs?.entries === 10 &&
       codexDrops?.entries === 3 &&
-      codexZones?.entries === 4 &&
+      codexZones?.entries === 7 &&
       codexModules?.entries === 8,
     'codex lists every weapon, bug, drop, zone and module',
     `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} z=${codexZones?.entries} p=${codexModules?.entries}`,
@@ -350,6 +351,32 @@ try {
     JSON.stringify(codexClick),
   );
 
+  await page.setViewportSize({ width: 960, height: 640 });
+  await page.waitForTimeout(300);
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Digit2');
+  await page.waitForTimeout(300);
+  const codexSmall = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(200);
+  const codexScrolled = await page.evaluate(() => window.__codex ?? null);
+  check(
+    codexSmall?.entries === 10 && codexSmall?.maxScroll > 0,
+    'codex scrolls instead of clipping on short screens',
+    JSON.stringify(codexSmall),
+  );
+  check(
+    codexScrolled?.scroll > (codexSmall?.scroll ?? 0),
+    'codex scroll keys move the list',
+    `scroll=${codexSmall?.scroll} -> ${codexScrolled?.scroll}`,
+  );
+  await page.screenshot({ path: join(SHOTS, '12b-codex-small.png') });
+  await page.keyboard.press('KeyC');
+  await page.waitForTimeout(400);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(300);
+
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__hud.choices > 0, null, { timeout: 20000 });
   await page.waitForTimeout(200);
@@ -383,6 +410,8 @@ try {
     'hud reports the zone the player stands in',
     JSON.stringify(terrain.zone),
   );
+  const eventHud = await page.evaluate(() => (window.__hud.events ?? []).length);
+  check(eventHud === 0, 'no objective before the first event window', `events=${eventHud}`);
   check(
     leveled.level >= 2,
     'xp pickups grant levels',
@@ -443,14 +472,25 @@ try {
     await page.keyboard.press('KeyP');
     await page.waitForFunction(() => window.__hud.paused === true, null, { timeout: 3000 });
   }
-  await page.keyboard.press('KeyQ');
-  await page.waitForTimeout(400);
+  const askQuit = async () => {
+    await page.keyboard.press('KeyQ');
+    return page
+      .waitForFunction(() => window.__hud.confirming === true, null, { timeout: 2000 })
+      .then(() => true)
+      .catch(() => false);
+  };
+  let quitAsked = await askQuit();
+  if (!quitAsked) {
+    await page.waitForTimeout(300);
+    quitAsked = await askQuit();
+  }
+  await page.waitForTimeout(200);
   const asked = await page.evaluate(() => ({
     confirming: window.__hud.confirming,
     inGame: !window.__menu,
   }));
   check(
-    asked.confirming === true && asked.inGame === true,
+    quitAsked && asked.confirming === true && asked.inGame === true,
     'quitting from pause asks for confirmation first',
     JSON.stringify(asked),
   );
@@ -506,11 +546,19 @@ try {
   await deathPage.waitForTimeout(1400);
   await deathPage.keyboard.press('Digit1');
   let died = false;
+  let maxLinks = 0;
+  let maxMarks = 0;
+  let maxBreakpoints = 0;
+  let maxDaemons = 0;
   let deathHud = await readHud(deathPage);
   const deathFrom = deathHud.time;
   const deathDeadline = Date.now() + 40 * 5000;
   while (Date.now() < deathDeadline) {
     deathHud = await readHud(deathPage);
+    maxLinks = Math.max(maxLinks, deathHud.hazards?.links ?? 0);
+    maxMarks = Math.max(maxMarks, deathHud.hazards?.marks ?? 0);
+    maxBreakpoints = Math.max(maxBreakpoints, deathHud.hazards?.breakpoints ?? 0);
+    maxDaemons = Math.max(maxDaemons, deathHud.hazards?.daemons ?? 0);
     if (deathHud.gameOver) {
       died = true;
       break;
@@ -520,6 +568,18 @@ try {
     await deathPage.waitForTimeout(200);
   }
   check(died, 'late game overwhelms a stationary player', `survived ${(deathHud.time - deathFrom).toFixed(1)}s of 40s sim`);
+  check(maxLinks > 0, 'deadlocks form dangerous links', `max links=${maxLinks}`);
+  check(maxMarks > 0, 'breakpoints leave delayed blast marks', `max marks=${maxMarks}`);
+  check(
+    maxBreakpoints > 0 && maxBreakpoints <= 3,
+    'breakpoint population stays capped',
+    `max breakpoints=${maxBreakpoints}`,
+  );
+  check(
+    maxDaemons > 0 && maxDaemons <= 2,
+    'daemon population stays capped',
+    `max daemons=${maxDaemons}`,
+  );
   await deathPage.waitForTimeout(900);
   await deathPage.screenshot({ path: join(SHOTS, '7-game-over.png') });
   const record = await deathPage.evaluate(() => localStorage.getItem('code-survivors:best'));
@@ -549,7 +609,7 @@ try {
   const bossPage = await context.newPage();
   await bossPage.setViewportSize({ width: 960, height: 640 });
   bossPage.on('pageerror', (e) => errors.push(`pageerror(boss): ${e.message}`));
-  await bossPage.goto(`http://localhost:${PORT}/?skip=88&seed=123456`, { waitUntil: 'load' });
+  await bossPage.goto(`http://localhost:${PORT}/?skip=88&seed=123456&passives=parallel`, { waitUntil: 'load' });
   await bossPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
   await bossPage.waitForTimeout(700);
   await bossPage.keyboard.press('Enter');
@@ -574,6 +634,8 @@ try {
   let maxOrbsInFight = 0;
   let minEnemiesInFight = Infinity;
   let maxEnemiesInFight = 0;
+  let maxCacheStacks = 0;
+  let maxParallelHits = 0;
   const bossDeadline = Date.now() + 150000;
   while (Date.now() < bossDeadline) {
     const hud = await readHud(bossPage);
@@ -585,6 +647,8 @@ try {
       break;
     }
     if (hud.choices > 0) await bossPage.keyboard.press('Digit1');
+    maxCacheStacks = Math.max(maxCacheStacks, hud.cache?.stacks ?? 0);
+    maxParallelHits = Math.max(maxParallelHits, hud.parallelHits ?? 0);
     if (hud.boss) {
       bossSeen = bossSeen ?? { ...hud.boss };
       bossCombatStart = bossCombatStart ?? hud.time;
@@ -627,6 +691,8 @@ try {
     `fewest enemies during the fight: ${minEnemiesInFight}`,
   );
   check(bossTookDamage, 'boss loses at least 15% health during combat', `lowest hp=${bossLowestHp} max=${bossSeen?.maxHp}`);
+  check(maxCacheStacks > 0, 'cache builds focus stacks while attacking', `max stacks=${maxCacheStacks}`);
+  check(maxParallelHits > 0, 'parallel reacts to alternating weapon hits', `hits=${maxParallelHits}`);
   if (reachedPhase2) {
     check(
       maxEnemiesInFight > 1,
@@ -649,6 +715,332 @@ try {
   if (!reachedPhase2) console.log('SKIP  boss reaches phase 2 (see combat outcome above)');
   await bossPage.screenshot({ path: join(SHOTS, '6-boss.png') });
   await bossPage.close();
+
+  const evoPage = await context.newPage();
+  await evoPage.setViewportSize({ width: 960, height: 640 });
+  evoPage.on('pageerror', (e) => errors.push(`pageerror(evo): ${e.message}`));
+  await evoPage.goto(`http://localhost:${PORT}/?skip=20&evolve=dart&seed=123456`, { waitUntil: 'load' });
+  await evoPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await evoPage.waitForTimeout(700);
+  await evoPage.keyboard.press('Enter');
+  await evoPage.waitForFunction(() => window.__hud.choices > 0);
+  await evoPage.keyboard.press('Digit1');
+  const evoOpened = await evoPage
+    .waitForFunction(() => window.__hud.panel === 'evolution', null, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  const evoPanel = await readHud(evoPage);
+  check(evoOpened, 'dart reaches its evolution level and opens a branch panel', `panel=${evoPanel.panel} cards=${evoPanel.panelCards}`);
+  check(evoPanel.panelCards === 2, 'evolution offers exactly two branches', `cards=${evoPanel.panelCards}`);
+  await evoPage.waitForTimeout(350);
+  await evoPage.screenshot({ path: join(SHOTS, '13-evolution.png') });
+  if (evoOpened) await evoPage.keyboard.press('Digit1');
+  await evoPage.waitForTimeout(500);
+  const evolved = await readHud(evoPage);
+  const dartHud = evolved.weapons.find((weapon) => weapon.symbol === ';');
+  check(
+    dartHud?.evolution === 'A',
+    'chosen branch is locked into the loadout',
+    `weapons=${JSON.stringify(evolved.weapons)}`,
+  );
+  await evoPage.close();
+
+  for (const [label, query, branchKey, branch] of [
+    ['burn/focus', '?skip=60&evolve=bomb,clone&seed=123456', 'Digit1', 'A'],
+    ['chain/spread', '?skip=60&evolve=bomb,clone&seed=654321', 'Digit2', 'B'],
+  ]) {
+    const branchPage = await context.newPage();
+    await branchPage.setViewportSize({ width: 960, height: 640 });
+    branchPage.on('pageerror', (e) => errors.push(`pageerror(branch ${label}): ${e.message}`));
+    await branchPage.goto(`http://localhost:${PORT}/${query}`, { waitUntil: 'load' });
+    await branchPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+    await branchPage.waitForTimeout(700);
+    await branchPage.keyboard.press('Enter');
+    await branchPage.waitForFunction(() => window.__hud.choices > 0);
+    await branchPage.keyboard.press('Digit1');
+    let panels = 0;
+    for (let i = 0; i < 2; i++) {
+      const opened = await branchPage
+        .waitForFunction(() => window.__hud.panel === 'evolution', null, { timeout: 5000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!opened) break;
+      panels += 1;
+      await branchPage.waitForTimeout(150);
+      await branchPage.keyboard.press(branchKey);
+      await branchPage.waitForTimeout(450);
+    }
+    const branchHud = await readHud(branchPage);
+    const bomb = branchHud.weapons.find((weapon) => weapon.symbol === '!');
+    const clone = branchHud.weapons.find((weapon) => weapon.symbol === 'fn()');
+    check(
+      panels === 2 && bomb?.evolution === branch && clone?.evolution === branch,
+      `bomb/clone ${label} branches apply`,
+      `panels=${panels} bomb=${bomb?.evolution} clone=${clone?.evolution}`,
+    );
+    await play(branchPage, 4);
+    if (label === 'chain/spread') {
+      await branchPage.screenshot({ path: join(SHOTS, '16-bomb-clone.png') });
+    }
+    await branchPage.close();
+  }
+
+  const eventPage = await context.newPage();
+  await eventPage.setViewportSize({ width: 960, height: 640 });
+  eventPage.on('pageerror', (e) => errors.push(`pageerror(event): ${e.message}`));
+  await eventPage.goto(`http://localhost:${PORT}/?skip=30&eventNear=1&eventCharge=1.5&passives=typesafe,memory&seed=123456`, {
+    waitUntil: 'load',
+  });
+  await eventPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await eventPage.waitForTimeout(700);
+  await eventPage.keyboard.press('Enter');
+  await eventPage.waitForFunction(() => window.__hud.choices > 0);
+  await eventPage.keyboard.press('Digit1');
+  await eventPage.waitForTimeout(300);
+  const eventStart = await readHud(eventPage);
+  const compileStart = findEvent(eventStart, 'compile');
+  check(
+    Boolean(compileStart) && compileStart.interactable,
+    'hud offers a compile objective for E',
+    JSON.stringify(compileStart),
+  );
+  let eventInteracted = false;
+  let eventStarted = false;
+  let eventFree = false;
+  for (let i = 0; i < 90; i++) {
+    const hud = await readHud(eventPage);
+    if (hud.gameOver) break;
+    if (hud.panel === 'free') {
+      eventFree = true;
+      break;
+    }
+    if (hud.choices > 0) {
+      await eventPage.keyboard.press('Digit1');
+      await eventPage.waitForTimeout(160);
+      continue;
+    }
+    const compile = findEvent(hud, 'compile');
+    if (!compile) {
+      if (!eventInteracted) break;
+      await eventPage.waitForTimeout(300);
+      continue;
+    }
+    if (compile.interactable && !compile.active) {
+      await eventPage.keyboard.press('KeyE');
+      eventInteracted = true;
+      await eventPage.waitForTimeout(200);
+      continue;
+    }
+    if (compile.active) {
+      if (!eventStarted) await eventPage.screenshot({ path: join(SHOTS, '14-compile-node.png') });
+      eventStarted = true;
+      await eventPage.waitForTimeout(240);
+      continue;
+    }
+    await eventPage.waitForTimeout(200);
+  }
+  check(eventInteracted && eventStarted, 'player can interact with the compile node');
+  check(eventFree, 'compile node completion grants a free module choice');
+  await eventPage.screenshot({ path: join(SHOTS, '14b-compile-complete.png') });
+  if (eventFree) {
+    await eventPage.keyboard.press('Digit1');
+    await eventPage.waitForTimeout(400);
+    for (let i = 0; i < 5; i++) {
+      const hud = await readHud(eventPage);
+      if (hud.choices === 0) break;
+      await eventPage.keyboard.press('Digit1');
+      await eventPage.waitForTimeout(220);
+    }
+    const afterEvent = await readHud(eventPage);
+    check(
+      afterEvent.panel === null && !findEvent(afterEvent, 'compile'),
+      'free module clears the node until the terrain rebuilds',
+      `panel=${afterEvent.panel} compile=${findEvent(afterEvent, 'compile') ? 'present' : 'none'}`,
+    );
+  }
+  await eventPage.close();
+
+  const packetPage = await context.newPage();
+  await packetPage.setViewportSize({ width: 960, height: 640 });
+  packetPage.on('pageerror', (e) => errors.push(`pageerror(packet): ${e.message}`));
+  await packetPage.goto(`http://localhost:${PORT}/?skip=60&packetNear=1&seed=123456`, {
+    waitUntil: 'load',
+  });
+  await packetPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await packetPage.waitForTimeout(700);
+  await packetPage.keyboard.press('Enter');
+  await packetPage.waitForFunction(() => window.__hud.choices > 0);
+  await packetPage.keyboard.press('Digit1');
+  let packetEngaged = false;
+  let packetEvo = false;
+  for (let i = 0; i < 180; i++) {
+    const hud = await readHud(packetPage);
+    if (hud.gameOver) break;
+    const packet = findEvent(hud, 'packet');
+    if (packet?.interactable && !packet.active) {
+      await packetPage.keyboard.press('KeyE');
+      await packetPage.waitForTimeout(200);
+      continue;
+    }
+    if (packet?.active) {
+      if (!packetEngaged) await packetPage.screenshot({ path: join(SHOTS, '18-packet.png') });
+      packetEngaged = true;
+    }
+    if (!packet && packetEngaged) {
+      if (hud.panel === 'evolution') {
+        packetEvo = true;
+        break;
+      }
+      await packetPage.waitForTimeout(100);
+      continue;
+    }
+    if (hud.panel === 'evolution' && packet) {
+      await packetPage.keyboard.press('Digit1');
+      await packetPage.waitForTimeout(150);
+      continue;
+    }
+    if (hud.choices > 0) {
+      await packetPage.keyboard.press('Digit1');
+      await packetPage.waitForTimeout(150);
+      continue;
+    }
+    if (!packet) break;
+    await packetPage.waitForTimeout(200);
+  }
+  check(packetEngaged, 'corrupted packet deploys guards when reached');
+  check(packetEvo, 'corrupted packet completion opens a weapon evolution choice');
+  if (packetEvo) {
+    await packetPage.keyboard.press('Digit1');
+    await packetPage.waitForTimeout(400);
+    const repaired = await readHud(packetPage);
+    check(
+      repaired.weapons.some((weapon) => weapon.evolution),
+      'packet evolution is locked into the loadout',
+      JSON.stringify(repaired.weapons),
+    );
+  }
+  await packetPage.close();
+
+  const commitPage = await context.newPage();
+  await commitPage.setViewportSize({ width: 960, height: 640 });
+  commitPage.on('pageerror', (e) => errors.push(`pageerror(commit): ${e.message}`));
+  await commitPage.goto(
+    `http://localhost:${PORT}/?skip=60&commitNear=1&commitDuration=10&commitNeed=6&seed=123456`,
+    { waitUntil: 'load' },
+  );
+  await commitPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await commitPage.waitForTimeout(700);
+  await commitPage.keyboard.press('Enter');
+  await commitPage.waitForFunction(() => window.__hud.choices > 0);
+  await commitPage.keyboard.press('Digit1');
+  let commitEngaged = false;
+  let commitReward = false;
+  for (let i = 0; i < 160; i++) {
+    const hud = await readHud(commitPage);
+    if (hud.gameOver) break;
+    const commit = findEvent(hud, 'commit');
+    if (commit?.interactable && !commit.active) {
+      await commitPage.keyboard.press('KeyE');
+      await commitPage.waitForTimeout(200);
+      continue;
+    }
+    if (commit?.active) {
+      if (!commitEngaged) await commitPage.screenshot({ path: join(SHOTS, '19-commit.png') });
+      commitEngaged = true;
+    }
+    if ((hud.rareModules ?? 0) > 0) {
+      commitReward = true;
+      break;
+    }
+    if (hud.choices > 0) {
+      await commitPage.keyboard.press('Digit1');
+      await commitPage.waitForTimeout(150);
+      continue;
+    }
+    if (!commit) {
+      if (commitEngaged) {
+        await commitPage.waitForTimeout(300);
+        commitReward = ((await readHud(commitPage)).rareModules ?? 0) > 0;
+      }
+      break;
+    }
+    if (commit.active) {
+      await commitPage.waitForTimeout(200);
+      continue;
+    }
+    await commitPage.waitForTimeout(200);
+  }
+  check(commitEngaged, 'dangerous commit starts its stronger wave when accepted');
+  check(commitReward, 'dangerous commit completion grants a rare module');
+  await commitPage.close();
+
+  const rewardPage = await context.newPage();
+  await rewardPage.setViewportSize({ width: 960, height: 640 });
+  rewardPage.on('pageerror', (e) => errors.push(`pageerror(reward): ${e.message}`));
+  await rewardPage.goto(
+    `http://localhost:${PORT}/?skip=94&bossHp=0.02&passives=parallel,typesafe,memory&seed=123456`,
+    { waitUntil: 'load' },
+  );
+  await rewardPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await rewardPage.waitForTimeout(700);
+  await rewardPage.keyboard.press('Enter');
+  await rewardPage.waitForFunction(() => window.__hud.choices > 0);
+  await rewardPage.keyboard.press('Digit1');
+  let rewardSeen = null;
+  const rewardDeadline = Date.now() + 60000;
+  while (Date.now() < rewardDeadline) {
+    const hud = await readHud(rewardPage);
+    if (hud.gameOver) break;
+    if (hud.choices > 0) {
+      if (hud.panel === 'reward') {
+        rewardSeen = hud;
+        break;
+      }
+      await rewardPage.keyboard.press('Digit1');
+    }
+    await rewardPage.waitForTimeout(150);
+  }
+  check(Boolean(rewardSeen), 'boss kill opens a reward panel', `panel=${rewardSeen?.panel ?? 'none'}`);
+  check(rewardSeen?.panelCards === 3, 'boss reward always offers three cards', `cards=${rewardSeen?.panelCards}`);
+  await rewardPage.waitForTimeout(350);
+  await rewardPage.screenshot({ path: join(SHOTS, '15-boss-reward.png') });
+  if (rewardSeen) {
+    await rewardPage.keyboard.press('Digit1');
+    await rewardPage.waitForTimeout(500);
+    let afterReward = await readHud(rewardPage);
+    if (afterReward.panel === 'evolution') {
+      await rewardPage.keyboard.press('Digit1');
+      await rewardPage.waitForTimeout(500);
+      afterReward = await readHud(rewardPage);
+    }
+    check(afterReward.panel === null, 'boss reward resolves without leaving a panel', `panel=${afterReward.panel}`);
+  }
+  await rewardPage.close();
+
+  const shieldPage = await context.newPage();
+  shieldPage.on('pageerror', (e) => errors.push(`pageerror(shield): ${e.message}`));
+  await shieldPage.goto(`http://localhost:${PORT}/?skip=0&passives=typesafe&seed=123456`, {
+    waitUntil: 'load',
+  });
+  await shieldPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await shieldPage.waitForTimeout(700);
+  await shieldPage.keyboard.press('Enter');
+  await shieldPage.waitForFunction(() => window.__hud.choices > 0);
+  await shieldPage.keyboard.press('Digit1');
+  let shieldUp = false;
+  const shieldDeadline = Date.now() + 9000;
+  while (Date.now() < shieldDeadline) {
+    const hud = await readHud(shieldPage);
+    if (hud.shield) {
+      shieldUp = true;
+      break;
+    }
+    if (hud.choices > 0) await shieldPage.keyboard.press('Digit1');
+    await shieldPage.waitForTimeout(100);
+  }
+  check(shieldUp, 'typesafe generates a shield after the safe window');
+  await shieldPage.screenshot({ path: join(SHOTS, '17-typesafe-shield.png') });
+  await shieldPage.close();
 
   const hidpiContext = await browser.newContext({
     viewport: { width: 1280, height: 800 },
@@ -749,6 +1141,11 @@ try {
     leftBehind / Math.max(1, dropped) < 0.85,
     'the magnet keeps up instead of leaving loot behind',
     `${leftBehind} of ~${dropped} dropped orbs still on the ground (exact behaviour is unit tested)`,
+  );
+  check(
+    Boolean(swept.gc) && (swept.gc.sweeps > 0 || swept.gc.charge > 0),
+    'gc builds charge from consecutive xp pickups',
+    JSON.stringify(swept.gc),
   );
   await lootPage.close();
 

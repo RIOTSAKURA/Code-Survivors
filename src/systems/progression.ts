@@ -1,6 +1,8 @@
+import { EVOLUTION_DEFS, EVOLUTION_LEVEL, isEvolutionWeapon } from '../data/evolutions';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
+import type { BossReward } from '../data/rewards';
 import { WEAPON_DEFS, WEAPON_IDS } from '../data/weapons';
-import type { PassiveId, RunState, UpgradeId, WeaponId } from '../core/types';
+import type { EvolutionId, PassiveId, RunState, UpgradeId, WeaponId } from '../core/types';
 
 export const MAX_WEAPONS = 6;
 export const MAX_PASSIVES = 6;
@@ -10,9 +12,8 @@ export interface RngLike {
   range(min: number, max: number): number;
 }
 
-export interface UpgradeCard {
-  id: UpgradeId;
-  kind: 'weapon' | 'passive';
+export interface ChoiceCard {
+  kind: 'weapon' | 'passive' | 'evolution' | 'reward';
   name: string;
   symbol: string;
   tagline: string;
@@ -23,6 +24,13 @@ export interface UpgradeCard {
   isNew: boolean;
   maxed: boolean;
   color: number;
+  label?: string;
+  chip?: string;
+}
+
+export interface UpgradeCard extends ChoiceCard {
+  id: UpgradeId;
+  kind: 'weapon' | 'passive';
 }
 
 export function xpForLevel(level: number): number {
@@ -120,6 +128,97 @@ export function toCard(run: RunState, id: UpgradeId): UpgradeCard {
   };
 }
 
+export function toEvolutionCard(id: EvolutionId): ChoiceCard {
+  const def = EVOLUTION_DEFS[id];
+  return {
+    kind: 'evolution',
+    name: def.name,
+    symbol: def.symbol,
+    tagline: def.tagline,
+    desc: def.desc,
+    level: 0,
+    nextLevel: 0,
+    maxLevel: 0,
+    isNew: false,
+    maxed: false,
+    color: def.color,
+    label: `BRANCH ${def.branch}`,
+    chip: 'EVOLVE',
+  };
+}
+
+export function toBossRewardCard(reward: BossReward): ChoiceCard {
+  return {
+    kind: 'reward',
+    name: reward.name,
+    symbol: reward.symbol,
+    tagline: reward.tagline,
+    desc: reward.desc,
+    level: 0,
+    nextLevel: 0,
+    maxLevel: 0,
+    isNew: false,
+    maxed: false,
+    color: reward.color,
+    label: 'BOSS DROP',
+    chip: 'REWARD',
+  };
+}
+
+export function canEvolve(run: RunState, weapon: WeaponId): boolean {
+  return (
+    isEvolutionWeapon(weapon) &&
+    (run.weapons[weapon] ?? 0) >= EVOLUTION_LEVEL &&
+    !run.evolutions[weapon]
+  );
+}
+
+export function applyEvolution(run: RunState, id: EvolutionId): WeaponId | null {
+  const def = EVOLUTION_DEFS[id];
+  if (!isEvolutionWeapon(def.weapon)) return null;
+  if ((run.weapons[def.weapon] ?? 0) <= 0) return null;
+  if (run.evolutions[def.weapon]) return null;
+  run.evolutions[def.weapon] = id;
+  return def.weapon;
+}
+
+export interface RewardOutcome {
+  evolve: WeaponId | null;
+  upgraded: WeaponId | null;
+}
+
+export function applyBossReward(run: RunState, reward: BossReward): RewardOutcome {
+  const outcome: RewardOutcome = { evolve: null, upgraded: null };
+  switch (reward.id) {
+    case 'evolution':
+      outcome.evolve = reward.evolutionWeapon ?? null;
+      break;
+    case 'weapon_level':
+      if (reward.upgradeWeapon) {
+        applyUpgrade(run, reward.upgradeWeapon);
+        outcome.upgraded = reward.upgradeWeapon;
+      }
+      break;
+    case 'module_damage':
+      run.stats.damageMult *= 1.18;
+      break;
+    case 'module_cooldown':
+      run.stats.cooldownMult *= 0.88;
+      break;
+    case 'module_armor':
+      run.stats.armor += 1;
+      break;
+    case 'module_speed':
+      run.stats.speed *= 1.1;
+      break;
+    case 'restore':
+      run.stats.maxHp += 25;
+      run.hp = Math.min(run.stats.maxHp, run.hp + run.stats.maxHp * 0.6);
+      break;
+  }
+  return outcome;
+}
+
 export function applyUpgrade(run: RunState, id: UpgradeId): void {
   const stats = run.stats;
   if (WEAPON_IDS.includes(id as WeaponId)) {
@@ -137,24 +236,12 @@ export function applyUpgrade(run: RunState, id: UpgradeId): void {
     case 'multicore':
       stats.projectileBonus += 1;
       break;
-    case 'cache':
-      stats.cooldownMult *= 0.83;
-      break;
     case 'memory':
       stats.maxHp += 20;
       run.hp = Math.min(stats.maxHp, run.hp + 20);
       break;
-    case 'gc':
-      stats.pickupRadius *= 1.3;
-      break;
     case 'compile':
       stats.speed *= 1.15;
-      break;
-    case 'typesafe':
-      stats.armor += 1;
-      break;
-    case 'parallel':
-      stats.cooldownMult *= 0.9;
       break;
     case 'quantum':
       stats.splitChance += 0.15;

@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { TERRAIN, WORLD } from '../src/config';
 import {
   DECOR_KINDS,
+  TERRAIN_EVENT,
+  TERRAIN_EVENTS,
   ZONE_DEFS,
   ZONE_KINDS,
   generateTerrain,
   reshuffleZones,
 } from '../src/data/terrain';
-import { isZoneSpent, stepCharge, zoneHazard, zoneMods } from '../src/systems/terrain';
+import {
+  isZoneSpent,
+  stepCharge,
+  zoneHazard,
+  zoneMods,
+} from '../src/systems/terrain';
 
 const terrain = generateTerrain(20240601);
 
@@ -193,5 +200,15 @@ describe('terrain effects', () => {
       expect(def.desc.length).toBeGreaterThan(8);
       expect(def.name.length).toBeGreaterThan(0);
     }
+  });
+
+  it('describes every adventure target for the codex', () => {
+    for (const kind of ['compile', 'packet', 'commit'] as const) {
+      const def = TERRAIN_EVENTS[kind];
+      expect(def.label.length).toBeGreaterThan(2);
+      expect(def.desc.length).toBeGreaterThan(8);
+      expect(def.name.length).toBeGreaterThan(0);
+    }
+    expect(TERRAIN_EVENT).toBe(TERRAIN_EVENTS.compile);
   });
 });

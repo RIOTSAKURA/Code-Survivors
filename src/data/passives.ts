@@ -12,6 +12,28 @@ export interface PassiveDef {
   note: string;
 }
 
+export const CACHE_PASSIVE = {
+  maxStacks: 5,
+  window: 3,
+  perStack: (level: number): number => 0.06 + 0.02 * (level - 1),
+};
+
+export const PARALLEL_PASSIVE = {
+  bonus: (level: number): number => 0.1 + 0.05 * (level - 1),
+};
+
+export const GC_PASSIVE = {
+  window: 2,
+  threshold: (level: number): number => 18 - 2 * (level - 1),
+  radius: (level: number): number => 300 + 15 * (level - 1),
+  damage: (level: number): number => 40 + 20 * level,
+};
+
+export const TYPESAFE_PASSIVE = {
+  delay: (level: number): number => 13 - 2 * (level - 1),
+  radius: 34,
+};
+
 export const PASSIVE_DEFS: Record<PassiveId, PassiveDef> = {
   multicore: {
     id: 'multicore',
@@ -28,10 +50,10 @@ export const PASSIVE_DEFS: Record<PassiveId, PassiveDef> = {
     name: '缓存优化',
     symbol: '>>',
     tagline: 'Cache Opt',
-    desc: '+20% 攻速',
+    desc: '连续攻击同一目标时叠加攻速，切换目标或停火后重置',
     color: PALETTE.yellow,
     maxLevel: 5,
-    note: '所有武器冷却 -17%',
+    note: `每层 +${Math.round(CACHE_PASSIVE.perStack(1) * 100)}%~${Math.round(CACHE_PASSIVE.perStack(5) * 100)}% 攻速 · 最多 ${CACHE_PASSIVE.maxStacks} 层`,
   },
   memory: {
     id: 'memory',
@@ -48,10 +70,10 @@ export const PASSIVE_DEFS: Record<PassiveId, PassiveDef> = {
     name: '垃圾回收',
     symbol: '{}',
     tagline: 'Garbage Collector',
-    desc: '自动拾取范围 +30%',
+    desc: '短时间内连续拾取经验，积攒一次范围清扫',
     color: PALETTE.purple,
     maxLevel: 5,
-    note: '二进制经验球的吸附半径扩大',
+    note: `${GC_PASSIVE.window}s 内连续拾取 · 满层清扫周围敌人`,
   },
   compile: {
     id: 'compile',
@@ -68,20 +90,20 @@ export const PASSIVE_DEFS: Record<PassiveId, PassiveDef> = {
     name: '类型安全',
     symbol: 'T',
     tagline: 'Type Safety',
-    desc: '+1 护甲（减伤）',
+    desc: '一段时间不受伤后生成一层护盾，抵挡一次伤害',
     color: PALETTE.text,
     maxLevel: 5,
-    note: '编译期检查拦下更多伤害',
+    note: `未受伤 ${TYPESAFE_PASSIVE.delay(1)}~${TYPESAFE_PASSIVE.delay(5)}s 生成 · 破碎后重新计时`,
   },
   parallel: {
     id: 'parallel',
     name: '并行计算',
     symbol: '||',
     tagline: 'Parallelism',
-    desc: '所有武器冷却 -10%',
+    desc: '不同武器交替命中同一目标时造成额外伤害',
     color: PALETTE.orange,
     maxLevel: 5,
-    note: '多线程调度，武器转得更快',
+    note: `交替命中 +${Math.round(PARALLEL_PASSIVE.bonus(1) * 100)}%~${Math.round(PARALLEL_PASSIVE.bonus(5) * 100)}% 伤害 · 鼓励多武器搭配`,
   },
   quantum: {
     id: 'quantum',

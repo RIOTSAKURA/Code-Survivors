@@ -4,12 +4,14 @@ import { sfx } from '../core/audio';
 import { applyTextResolution, setupFixedCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { formatTime, readBest, writeBest } from '../core/records';
 import { EV, bus, hud } from '../core/state';
-import type { UpgradeCard } from '../systems/progression';
+import type { ChoiceCard } from '../systems/progression';
 
 interface LevelPayload {
-  cards: UpgradeCard[];
+  cards: ChoiceCard[];
   level: number;
   pending: number;
+  title?: string;
+  footer?: string;
 }
 
 interface OverPayload {
@@ -23,11 +25,14 @@ interface BannerPayload {
   text: string;
   sub: string;
   ms: number;
+  color?: string;
+  emphasis?: boolean;
 }
 
 const CARD_W = 640;
 const CARD_H = 92;
 const CARD_GAP = 12;
+const PANEL_FOOTER = 'press [1] [2] [3] or click a suggestion · build the strongest module set';
 
 function hex(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;
@@ -101,7 +106,7 @@ class CardView {
     this.hint = hint;
   }
 
-  set(card: UpgradeCard | null, visible: boolean): void {
+  set(card: ChoiceCard | null, visible: boolean): void {
     this.container.setVisible(visible);
     if (!card) return;
     this.accent.setFillStyle(card.color);
@@ -111,14 +116,17 @@ class CardView {
     else this.symbol.setFontSize(26);
     this.name.setText(card.name);
     const levelText =
-      card.level === 0
+      card.label ??
+      (card.level === 0
         ? card.kind === 'weapon'
           ? 'NEW WEAPON'
           : 'NEW PASSIVE'
-        : `Lv ${card.level} → ${card.nextLevel}`;
+        : `Lv ${card.level} → ${card.nextLevel}`);
     this.level.setText(`  ${levelText}`).setX(88 + this.name.width + 10);
     this.desc.setText(card.desc);
-    if (card.maxed) {
+    if (card.chip) {
+      this.chip.setText(card.chip).setBackgroundColor(hex(card.color));
+    } else if (card.maxed) {
       this.chip.setText('MAX').setBackgroundColor('#7f849c');
     } else if (card.isNew) {
       this.chip.setText('NEW').setBackgroundColor(hex(card.color));
@@ -149,6 +157,13 @@ export class UIScene extends Phaser.Scene {
   private statText!: Phaser.GameObjects.Text;
   private loadoutText!: Phaser.GameObjects.Text;
   private zoneText!: Phaser.GameObjects.Text;
+  private objectivePanel!: Phaser.GameObjects.Container;
+  private objectiveBg!: Phaser.GameObjects.Rectangle;
+  private objectiveAccent!: Phaser.GameObjects.Rectangle;
+  private objectiveTitle!: Phaser.GameObjects.Text;
+  private objectivePrompt!: Phaser.GameObjects.Text;
+  private objectiveBarFill!: Phaser.GameObjects.Rectangle;
+  private passiveText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
@@ -181,6 +196,8 @@ export class UIScene extends Phaser.Scene {
   private cachedHp = '';
   private cachedStats = '';
   private cachedTimer = '';
+  private cachedObjective = '';
+  private cachedPassive = '';
   private overVisible = false;
 
   constructor() {
@@ -216,6 +233,12 @@ export class UIScene extends Phaser.Scene {
       color: '#00ff41',
     });
     this.zoneText.setVisible(false);
+    this.passiveText = this.add.text(16, 134, '', {
+      fontFamily: MONO_FONT,
+      fontSize: '13px',
+      color: '#a6adc8',
+    });
+    this.passiveText.setVisible(false);
     this.timerText = this.add
       .text(0, 14, '00:00', { fontFamily: MONO_FONT, fontSize: '30px', color: '#cdd6f4', fontStyle: 'bold' })
       .setOrigin(0.5, 0);
@@ -223,7 +246,7 @@ export class UIScene extends Phaser.Scene {
       .text(0, 20, '', { fontFamily: MONO_FONT, fontSize: '16px', color: '#ffa500' })
       .setOrigin(1, 0);
     this.hintText = this.add
-      .text(0, 0, 'WASD move   P pause   M mute', {
+      .text(0, 0, 'WASD move   E interact   P pause   M mute', {
         fontFamily: MONO_FONT,
         fontSize: '13px',
         color: '#585b70',
@@ -249,6 +272,7 @@ export class UIScene extends Phaser.Scene {
 
     this.vignette = this.add.graphics();
 
+    this.buildObjectivePanel();
     this.buildPanel();
     this.buildOverPanel();
     this.buildPausePanel();
@@ -261,6 +285,36 @@ export class UIScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.scale.off('resize', this.layout, this));
   }
 
+  private buildObjectivePanel(): void {
+    const bg = this.add.rectangle(0, 0, 560, 62, 0x11111b, 0.92).setStrokeStyle(1, PALETTE.cyan);
+    const accent = this.add.rectangle(-280, 0, 4, 62, PALETTE.cyan).setOrigin(0, 0.5);
+    const title = this.add
+      .text(-260, -12, '', {
+        fontFamily: MONO_FONT,
+        fontSize: '16px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0, 0.5);
+    const prompt = this.add
+      .text(-260, 12, '', {
+        fontFamily: MONO_FONT,
+        fontSize: '13px',
+        color: '#ffe066',
+      })
+      .setOrigin(0, 0.5);
+    const barBg = this.add.rectangle(-260, 27, 520, 4, 0x313244).setOrigin(0, 0.5);
+    const barFill = this.add.rectangle(-260, 27, 0, 4, PALETTE.cyan).setOrigin(0, 0.5);
+    this.objectiveBg = bg;
+    this.objectiveAccent = accent;
+    this.objectiveTitle = title;
+    this.objectivePrompt = prompt;
+    this.objectiveBarFill = barFill;
+    this.objectivePanel = this.add
+      .container(0, 0, [bg, accent, title, prompt, barBg, barFill])
+      .setVisible(false);
+  }
+
   private buildPanel(): void {
     const header = this.add
       .text(0, 0, '▸ upgrade_available.rs — choose 1 of 3', {
@@ -270,7 +324,7 @@ export class UIScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
     const footer = this.add
-      .text(0, 0, 'press [1] [2] [3] or click a suggestion · build the strongest module set', {
+      .text(0, 0, PANEL_FOOTER, {
         fontFamily: MONO_FONT,
         fontSize: '13px',
         color: '#7f849c',
@@ -449,6 +503,8 @@ export class UIScene extends Phaser.Scene {
 
   private pick(index: number): void {
     if (!this.panel.visible) return;
+    const card = this.cards[index];
+    if (!card || !card.container.visible) return;
     bus.emit(EV.choicePicked, { index });
     this.panel.setVisible(false);
   }
@@ -480,14 +536,19 @@ export class UIScene extends Phaser.Scene {
 
   private showLevelUp(payload: LevelPayload): void {
     this.pausePanel.setVisible(false);
+    this.bannerTimer = 0;
+    this.bannerText.setAlpha(0);
+    this.bannerSub.setAlpha(0);
     this.panel.setVisible(true);
     this.cards.forEach((card, i) => {
       const data = payload.cards[i] ?? null;
       card.set(data, data !== null);
     });
     this.panelHeader.setText(
-      `▸ upgrade_available.rs — LVL ${payload.level}${payload.pending > 1 ? ` (${payload.pending} pending)` : ''}`,
+      payload.title ??
+        `▸ upgrade_available.rs — LVL ${payload.level}${payload.pending > 1 ? ` (${payload.pending} pending)` : ''}`,
     );
+    this.panelFooter.setText(payload.footer ?? PANEL_FOOTER);
     this.layout();
     this.cards.forEach((card, i) => {
       card.setAlpha(0);
@@ -497,11 +558,12 @@ export class UIScene extends Phaser.Scene {
 
   private showBanner(payload: BannerPayload): void {
     const fatal = payload.text.includes('FATAL');
+    const emphasis = payload.emphasis ?? fatal;
     this.bannerText.setText(payload.text);
     this.bannerSub.setText(payload.sub);
-    this.bannerText.setFontSize(fatal ? 40 : 26);
-    this.bannerSub.setFontSize(fatal ? 16 : 14);
-    this.bannerText.setColor(fatal ? '#ff0040' : '#00ffff');
+    this.bannerText.setFontSize(emphasis ? 38 : 26);
+    this.bannerSub.setFontSize(emphasis ? 16 : 14);
+    this.bannerText.setColor(payload.color ?? (fatal ? '#ff0040' : '#00ffff'));
     this.bannerTimer = (payload.ms ?? 1200) / 1000;
     this.bannerText.setAlpha(1);
     this.bannerSub.setAlpha(1);
@@ -568,7 +630,11 @@ export class UIScene extends Phaser.Scene {
     }
 
     const loadout = [
-      `weapons ${hud.weapons.map((w) => `${w.symbol}L${w.level}${w.max ? '*' : ''}`).join(' ') || '—'}`,
+      `weapons ${
+        hud.weapons
+          .map((w) => `${w.symbol}L${w.level}${w.max ? '*' : ''}${w.evolution ? `/${w.evolution}` : ''}`)
+          .join(' ') || '—'
+      }`,
       `passive ${hud.passives.map((p) => `${p.symbol}L${p.level}${p.max ? '*' : ''}`).join(' ') || '—'}`,
     ].join('\n');
     if (loadout !== this.cachedLoadout) {
@@ -586,6 +652,39 @@ export class UIScene extends Phaser.Scene {
     } else {
       this.zoneText.setVisible(false);
     }
+
+    const event = hud.events?.[0] ?? null;
+    if (!event || this.overVisible || hud.gameOver || hud.boss) {
+      this.objectivePanel.setVisible(false);
+      this.cachedObjective = '';
+    } else {
+      this.objectivePanel.setVisible(true);
+      this.objectiveBg.setStrokeStyle(1, event.color, 0.9);
+      this.objectiveAccent.setFillStyle(event.color);
+      this.objectiveTitle.setColor(hex(event.color)).setText(`${event.label} ${event.name}`);
+      const label = event.active ? this.objectiveActiveLabel(event) : `[E] 接受 · ${event.detail}`;
+      if (label !== this.cachedObjective) {
+        this.cachedObjective = label;
+        this.objectivePrompt.setText(label);
+      }
+      this.objectivePrompt.setColor(event.active ? '#cdd6f4' : '#ffe066');
+      this.objectivePrompt.setAlpha(
+        event.interactable ? 0.55 + 0.45 * Math.sin(this.time.now / 140) : 1,
+      );
+      this.objectiveBarFill.setFillStyle(event.color);
+      this.objectiveBarFill.width = 520 * event.progress;
+    }
+
+    const passiveParts: string[] = [];
+    if (hud.cache && hud.cache.stacks > 0) passiveParts.push(`>> ${hud.cache.stacks}/${hud.cache.max}`);
+    if (hud.gc) passiveParts.push(`{} ${hud.gc.charge}/${hud.gc.need}`);
+    if (hud.shield) passiveParts.push('T shield');
+    const passive = passiveParts.join('   ');
+    if (passive !== this.cachedPassive) {
+      this.cachedPassive = passive;
+      this.passiveText.setText(passive);
+    }
+    this.passiveText.setVisible(passive.length > 0);
 
     const timer = formatTime(hud.time);
     if (timer !== this.cachedTimer) {
@@ -634,6 +733,12 @@ export class UIScene extends Phaser.Scene {
     g.fillRect(w - thickness, 0, thickness, h);
   }
 
+  private objectiveActiveLabel(event: NonNullable<typeof hud.events>[number]): string {
+    if (event.kind === 'compile') return `编译中 · ${event.detail}`;
+    if (event.kind === 'commit') return `提交进度 · ${event.detail}`;
+    return event.detail;
+  }
+
   private layout(): void {
     const w = viewWidth(this.cameras.main);
     const h = viewHeight(this.cameras.main);
@@ -666,6 +771,9 @@ export class UIScene extends Phaser.Scene {
     this.bossBarFill.setPosition(w / 2 - 229, bossY);
     this.bossName.setPosition(w / 2, bossY - 10);
 
+    const objectiveScale = Math.min(1, Math.max(0.6, (w - 32) / 560));
+    this.objectivePanel.setScale(objectiveScale);
+    this.objectivePanel.setPosition(w / 2, h - 118);
     this.vignetteAlpha = -1;
   }
 }

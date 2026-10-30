@@ -85,6 +85,46 @@ function pickDecor(rng: Rng): DecorKind {
   return 'patch';
 }
 
+export type EventKind = 'compile' | 'packet' | 'commit';
+
+export interface TerrainEvent {
+  id: number;
+  kind: EventKind;
+  charge: number;
+  done: boolean;
+  deadline: number;
+  engaged: boolean;
+  guardIds: number[];
+  kills: number;
+  need: number;
+}
+
+export const TERRAIN_EVENTS: Record<
+  EventKind,
+  { label: string; name: string; color: number; desc: string }
+> = {
+  compile: {
+    label: '#compile',
+    name: '编译节点',
+    color: PALETTE.yellow,
+    desc: '出现后按 E 接受编译任务：完成后获得一次免费模块选择，编译期间攻速降低、受伤提高并持续吸引敌人',
+  },
+  packet: {
+    label: '#packet',
+    name: '损坏的数据包',
+    color: PALETTE.cyan,
+    desc: '出现后按 E 接受数据包任务，击败刷出的守卫可获得一次武器进化机会；超时则数据包丢失',
+  },
+  commit: {
+    label: '#commit',
+    name: '危险提交',
+    color: PALETTE.red,
+    desc: '出现后按 E 接受强化波次：在限定时间内击杀足够多的强化敌人，完成后获得稀有模块',
+  },
+};
+
+export const TERRAIN_EVENT = TERRAIN_EVENTS.compile;
+
 export interface Terrain {
   seed: number;
   zones: TerrainZone[];

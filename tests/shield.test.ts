@@ -33,4 +33,13 @@ describe('paren shield reflection', () => {
     expect(SHIELD.reflectMinLife).toBeGreaterThan(1);
     expect(PALETTE.green).not.toBe(PALETTE.cyan);
   });
+
+  it('lets the reflect evolution widen the sweep and harden the hit', () => {
+    const shot = hostile(100, 0, 10);
+    const out = reflectBullet(40, shot, { radius: 46, damageScale: 2.4, speedScale: 1.55 });
+    expect(out).not.toBeNull();
+    expect(out!.vx).toBeCloseTo(-155, 6);
+    expect(out!.damage).toBeCloseTo(24, 6);
+    expect(reflectBullet(47, shot, { radius: 46 })).toBeNull();
+  });
 });

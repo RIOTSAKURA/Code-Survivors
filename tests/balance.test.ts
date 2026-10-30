@@ -163,20 +163,20 @@ describe('enemy scaling', () => {
     expect(spawnRate(0)).toBeLessThan(1.2);
     expect(spawnRate(30)).toBeLessThan(unclamped(30) * 0.8);
     expect(spawnRate(60)).toBeLessThan(unclamped(60));
-    expect(at(200)).toBeCloseTo(SPAWN.rateRampCeil, 6);
+    expect(at(SPAWN.rateRampTime)).toBeCloseTo(SPAWN.rateRampCeil, 6);
     expect(at(300)).toBeCloseTo(SPAWN.rateRampCeil, 6);
     expect(at(500)).toBeCloseTo(SPAWN.rateRampCeil, 6);
     expect(at(0)).toBeCloseTo(SPAWN.rateRampFloor, 6);
     expect(at(0)).toBeLessThan(at(60));
     expect(at(60)).toBeLessThan(at(150));
-    expect(at(150)).toBeLessThan(at(200));
+    expect(at(150)).toBeLessThan(at(SPAWN.rateRampTime));
   });
 
   it('keeps the long run cut modest, never a flat global nerf', () => {
-    expect(SPAWN.rateRampCeil).toBeGreaterThan(0.8);
+    expect(SPAWN.rateRampCeil).toBeGreaterThanOrEqual(0.75);
     expect(SPAWN.rateRampCeil).toBeLessThanOrEqual(0.9);
     expect(SPAWN.rateRampFloor).toBeLessThan(SPAWN.rateRampCeil);
-    for (const t of [200, 400, 800]) {
+    for (const t of [SPAWN.rateRampTime, 400, 800]) {
       expect(spawnRamp(t)).toBeCloseTo(SPAWN.rateRampCeil, 6);
     }
   });

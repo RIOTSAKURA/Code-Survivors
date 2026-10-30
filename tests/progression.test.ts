@@ -92,28 +92,30 @@ describe('applyUpgrade', () => {
     expect(run.weapons.dart).toBe(WEAPON_DEFS.dart.maxLevel);
   });
 
-  it('applies passive stat changes', () => {
+  it('applies the flat stat passives', () => {
     const run = createRun();
     const baseSpeed = run.stats.speed;
     applyUpgrade(run, 'compile');
     expect(run.stats.speed).toBeCloseTo(baseSpeed * 1.15);
 
-    applyUpgrade(run, 'typesafe');
-    expect(run.stats.armor).toBe(1);
-
     applyUpgrade(run, 'multicore');
     expect(run.stats.projectileBonus).toBe(1);
 
-    const cooldownBefore = run.stats.cooldownMult;
-    applyUpgrade(run, 'parallel');
-    expect(run.stats.cooldownMult).toBeCloseTo(cooldownBefore * 0.9);
-
-    const pickupBefore = run.stats.pickupRadius;
-    applyUpgrade(run, 'gc');
-    expect(run.stats.pickupRadius).toBeCloseTo(pickupBefore * 1.3);
-
     applyUpgrade(run, 'quantum');
     expect(run.stats.splitChance).toBeCloseTo(0.15);
+  });
+
+  it('leaves the conditional passives to the scene instead of changing flat stats', () => {
+    const run = createRun();
+    const cooldown = run.stats.cooldownMult;
+    const pickup = run.stats.pickupRadius;
+    for (const id of ['cache', 'parallel', 'gc', 'typesafe'] as const) {
+      applyUpgrade(run, id);
+      expect(run.passives[id]).toBe(1);
+    }
+    expect(run.stats.cooldownMult).toBe(cooldown);
+    expect(run.stats.pickupRadius).toBe(pickup);
+    expect(run.stats.armor).toBe(0);
   });
 
   it('extends max hp and heals exactly 20 from any hp state', () => {

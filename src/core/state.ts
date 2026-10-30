@@ -25,6 +25,7 @@ export function createRun(): RunState {
     time: 0,
     weapons: {},
     passives: {},
+    evolutions: {},
     pendingLevels: 0,
     over: false,
   };
@@ -35,6 +36,40 @@ export interface HudEntry {
   level: number;
   color: number;
   max: boolean;
+  evolution?: 'A' | 'B';
+}
+
+export type PanelKind = 'level' | 'free' | 'evolution' | 'reward';
+
+export interface CacheHud {
+  stacks: number;
+  max: number;
+}
+
+export interface GcHud {
+  charge: number;
+  need: number;
+  sweeps: number;
+}
+
+export interface HazardHud {
+  links: number;
+  marks: number;
+  breakpoints: number;
+  daemons: number;
+  empowered: number;
+}
+
+export interface EventHud {
+  kind: 'compile' | 'packet' | 'commit';
+  label: string;
+  name: string;
+  color: number;
+  charge: number;
+  progress: number;
+  active: boolean;
+  interactable: boolean;
+  detail: string;
 }
 
 export interface BossHud {
@@ -70,6 +105,15 @@ export interface HudState {
   choices: number;
   confirming: boolean;
   zone: ZoneHud | null;
+  events: EventHud[];
+  cache: CacheHud | null;
+  gc: GcHud | null;
+  shield: boolean;
+  parallelHits: number;
+  rareModules: number;
+  hazards: HazardHud;
+  panel: PanelKind | null;
+  panelCards: number;
   zones: number;
   seed: number;
   orbs: number;
@@ -96,6 +140,15 @@ export const hud: HudState = {
   choices: 0,
   confirming: false,
   zone: null,
+  events: [],
+  cache: null,
+  gc: null,
+  shield: false,
+  parallelHits: 0,
+  rareModules: 0,
+  hazards: { links: 0, marks: 0, breakpoints: 0, daemons: 0, empowered: 0 },
+  panel: null,
+  panelCards: 0,
   zones: 0,
   seed: 0,
   orbs: 0,

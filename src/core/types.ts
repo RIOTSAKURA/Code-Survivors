@@ -15,7 +15,27 @@ export type PassiveId =
 
 export type UpgradeId = WeaponId | PassiveId;
 
-export type EnemyTypeId = 'syntax' | 'nullptr' | 'memleak' | 'race' | 'stack' | 'thrower' | 'boss';
+export type EvolutionId =
+  | 'dart_bounce'
+  | 'dart_stack'
+  | 'orbit_wide'
+  | 'orbit_reflect'
+  | 'bomb_burn'
+  | 'bomb_chain'
+  | 'clone_focus'
+  | 'clone_spread';
+
+export type EnemyTypeId =
+  | 'syntax'
+  | 'nullptr'
+  | 'memleak'
+  | 'race'
+  | 'stack'
+  | 'thrower'
+  | 'deadlock'
+  | 'breakpoint'
+  | 'daemon'
+  | 'boss';
 
 export interface Stats {
   maxHp: number;
@@ -37,6 +57,7 @@ export interface RunState {
   time: number;
   weapons: Partial<Record<WeaponId, number>>;
   passives: Partial<Record<PassiveId, number>>;
+  evolutions: Partial<Record<WeaponId, EvolutionId>>;
   pendingLevels: number;
   over: boolean;
 }
@@ -76,6 +97,9 @@ export interface Enemy {
   knockX: number;
   knockY: number;
   slowUntil?: number;
+  lastWeapon?: WeaponId;
+  challenge?: boolean;
+  empoweredUntil?: number;
 }
 
 export interface Projectile {
@@ -95,6 +119,9 @@ export interface Projectile {
   trailAt: number;
   fuse: number;
   blast: number;
+  weapon?: WeaponId;
+  bounces?: number;
+  hold?: number;
   dead: boolean;
 }
 

@@ -139,6 +139,13 @@ land in `screenshots/` (gitignored).
   keeping the natural boss schedule. Used by the smoke test for late-game and boss scenarios.
 - `?orbLife=<seconds>` — shortens the dropped-loot lifetime so expiry is testable in seconds.
 - `?seed=<number>` — fixes the terrain seed so a map can be reproduced.
+- `?evolve=<weapons>` — starts those weapons at their evolution level and queues the branch choice (`dart`, `orbit`, `bomb`, `clone`, comma-separated).
+- `?eventNear=1` — immediately offers the compile objective.
+- `?eventCharge=<seconds>` — overrides how long the compile node takes to finish.
+- `?packetNear=1` — immediately offers the corrupted packet objective.
+- `?commitNear=1` / `?commitDuration=<seconds>` / `?commitNeed=<kills>` — immediately offers the dangerous commit and tunes its challenge.
+- `?bossHp=<fraction>` — scales boss health so the kill-reward path is testable quickly.
+- `?passives=<modules>` — starts those passives at max level (`cache`, `parallel`, `gc`, `typesafe`, comma-separated; `cache:3` for a specific level).
 - `window.__menu` — `{ marchers, particles }` for the menu's background swarm, so the smoke test can
   tell whether the animation is actually running.
 - `window.__scenes` — the keys of every active scene, so tests can catch a scene left running

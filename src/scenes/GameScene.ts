@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import {
   BOSS,
+  BREAKPOINT,
+  DAEMON,
+  DEADLOCK,
   DEPTH,
   ENTRANCE,
   ITEM,
@@ -25,7 +28,9 @@ import type {
   Clone,
   Enemy,
   EnemyTypeId,
+  EvolutionId,
   Orb,
+  PassiveId,
   Orbiter,
   Pickup,
   Projectile,
@@ -38,12 +43,30 @@ import type { ItemId } from '../data/items';
 import {
   bossSummonPool,
   ENEMY_DEFS,
+  SPAWN_POOL,
   enemyHpScale,
   enemySpeedScale,
   pickEnemyType,
   raceSprintFactor,
   spawnRate,
 } from '../data/enemies';
+import {
+  BOMB_BURN,
+  BOMB_CHAIN,
+  CLONE_FOCUS,
+  CLONE_SPREAD,
+  DART_BOUNCE,
+  DART_FOCUS,
+  EVOLUTION_DEFS,
+  EVOLUTION_LEVEL,
+  ORBIT_REFLECT,
+  ORBIT_WIDE,
+  evolutionCandidates,
+  evolutionsFor,
+  isEvolutionWeapon,
+} from '../data/evolutions';
+import { rollBossRewards, rollRareModule } from '../data/rewards';
+import type { BossReward } from '../data/rewards';
 import {
   WEAPON_DEFS,
   WEAPON_IDS,
@@ -71,15 +94,38 @@ import {
   rayDamage,
   rayWidth,
 } from '../data/weapons';
-import { PASSIVE_DEFS, PASSIVE_IDS } from '../data/passives';
-import { ZONE_DEFS, generateTerrain, reshuffleZones } from '../data/terrain';
-import type { Terrain, TerrainZone } from '../data/terrain';
+import {
+  CACHE_PASSIVE,
+  GC_PASSIVE,
+  PARALLEL_PASSIVE,
+  PASSIVE_DEFS,
+  PASSIVE_IDS,
+  TYPESAFE_PASSIVE,
+} from '../data/passives';
+import {
+  TERRAIN_EVENTS,
+  ZONE_DEFS,
+  generateTerrain,
+  reshuffleZones,
+} from '../data/terrain';
+import type { Terrain, TerrainEvent, TerrainZone } from '../data/terrain';
 import { isZoneSpent, stepCharge, zoneHazard, zoneMods } from '../systems/terrain';
 import type { ZoneMods } from '../systems/terrain';
 import { Fx } from '../systems/fx';
 import { dampOrbVelocity, homeOrbVelocity, orbTier } from '../systems/loot';
+import { pointSegmentDistance } from '../systems/hazards';
 import { reflectBullet } from '../systems/shield';
-import { applyUpgrade, pickChoices, toCard, xpForLevel } from '../systems/progression';
+import {
+  applyBossReward,
+  applyEvolution,
+  applyUpgrade,
+  canEvolve,
+  pickChoices,
+  toBossRewardCard,
+  toCard,
+  toEvolutionCard,
+  xpForLevel,
+} from '../systems/progression';
 
 interface BossEntrance {
   x: number;
@@ -96,6 +142,42 @@ interface BossEntrance {
   holdAt: number;
   returning: boolean;
   returnEnd: number;
+}
+
+interface BurnPatch {
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  until: number;
+  nextTick: number;
+  fxAt: number;
+}
+
+interface ChainBlast {
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  at: number;
+  depth: number;
+}
+
+interface DeadlockLink {
+  aId: number;
+  bId: number;
+  armAt: number;
+  until: number;
+  hitAt: number;
+}
+
+interface BreakpointMark {
+  x: number;
+  y: number;
+  radius: number;
+  damage: number;
+  at: number;
+  blastAt: number;
 }
 
 const MAX_ORBIT_SLOTS = 10;
@@ -115,6 +197,10 @@ export class GameScene extends Phaser.Scene {
   private orbiters: Orbiter[] = [];
   private clones: Clone[] = [];
   private beams: Beam[] = [];
+  private burnPatches: BurnPatch[] = [];
+  private chainBlasts: ChainBlast[] = [];
+  private deadlockLinks: DeadlockLink[] = [];
+  private breakpointMarks: BreakpointMark[] = [];
 
   private playerSprite!: Phaser.GameObjects.Image;
   private playerX = 0;
@@ -141,8 +227,36 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   private chooseTimer = 0;
   private pendingChoices: UpgradeId[] = [];
+  private pendingEvolutions: WeaponId[] = [];
+  private pendingEvolutionCards: EvolutionId[] = [];
+  private qaEvolutions: WeaponId[] = [];
+  private pendingRewards: BossReward[] = [];
+  private pendingFree = 0;
+  private panelSource: 'level' | 'free' | 'evolution' | 'reward' = 'level';
   private lastPauseToggle = -1000;
   private panelOpen = false;
+  private dartFocusId = 0;
+  private dartStacks = 0;
+  private dartFocusAt = -10;
+  private eventChargeTime = TERRAIN.event.chargeTime;
+  private commitDuration = TERRAIN.commit.duration;
+  private commitNeed = TERRAIN.commit.need;
+  private eventSpawnTimer = TERRAIN.event.spawnEvery;
+  private commitSpawnTimer = 0;
+  private activeCommit: TerrainEvent | null = null;
+  private activeEvent: TerrainEvent | null = null;
+  private nextEventAt = 0;
+  private eventBag: TerrainEvent['kind'][] = [];
+  private cacheTargetId = 0;
+  private cacheStacks = 0;
+  private cacheAt = -10;
+  private parallelFxAt = -10;
+  private gcCharge = 0;
+  private gcLastPickup = -10;
+  private gcSweeps = 0;
+  private typesafeShield = false;
+  private lastDamageAt = 0;
+  private shieldSprite: Phaser.GameObjects.Image | null = null;
   private orbitPhase = 0;
   private clonePhase = 0;
   private orbiterSeq = 0;
@@ -176,6 +290,10 @@ export class GameScene extends Phaser.Scene {
     this.orbiters = [];
     this.clones = [];
     this.beams = [];
+    this.burnPatches = [];
+    this.chainBlasts = [];
+    this.deadlockLinks = [];
+    this.breakpointMarks = [];
     this.weaponTimers.clear();
     this.spawnTimer = 1.2;
     this.nextBossAt = SPAWN.bossFirstAt;
@@ -186,8 +304,36 @@ export class GameScene extends Phaser.Scene {
     this.choosing = false;
     this.paused = false;
     this.pendingChoices = [];
+    this.pendingEvolutions = [];
+    this.pendingEvolutionCards = [];
+    this.qaEvolutions = [];
+    this.pendingRewards = [];
+    this.pendingFree = 0;
+    this.panelSource = 'level';
     this.lastPauseToggle = -1000;
     this.panelOpen = false;
+    this.dartFocusId = 0;
+    this.dartStacks = 0;
+    this.dartFocusAt = -10;
+    this.eventChargeTime = this.readQaEventCharge();
+    this.commitDuration = this.readQaCommitDuration();
+    this.commitNeed = this.readQaCommitNeed();
+    this.eventSpawnTimer = TERRAIN.event.spawnEvery;
+    this.commitSpawnTimer = 0;
+    this.activeCommit = null;
+    this.activeEvent = null;
+    this.nextEventAt = this.run.time + TERRAIN.eventSystem.firstDelay;
+    this.eventBag = [];
+    this.cacheTargetId = 0;
+    this.cacheStacks = 0;
+    this.cacheAt = -10;
+    this.parallelFxAt = -10;
+    this.gcCharge = 0;
+    this.gcLastPickup = -10;
+    this.gcSweeps = 0;
+    this.typesafeShield = false;
+    this.lastDamageAt = 0;
+    this.shieldSprite = null;
     this.orbitPhase = 0;
     this.clonePhase = 0;
     this.orbiterSeq = 0;
@@ -209,6 +355,15 @@ export class GameScene extends Phaser.Scene {
     hud.damageFlash = 0;
     hud.gameOver = false;
     hud.paused = false;
+    hud.events = [];
+    hud.cache = null;
+    hud.gc = null;
+    hud.shield = false;
+    hud.parallelHits = 0;
+    hud.rareModules = 0;
+    hud.hazards = { links: 0, marks: 0, breakpoints: 0, daemons: 0, empowered: 0 };
+    hud.panel = null;
+    hud.panelCards = 0;
     hud.version++;
 
     this.playerX = WORLD.width / 2;
@@ -216,6 +371,8 @@ export class GameScene extends Phaser.Scene {
     this.facing = -Math.PI / 2;
     this.run.pendingLevels = 1;
     this.applyQaSkip();
+    this.applyQaPassives();
+    this.applyQaEvolution();
     this.refreshHudLists();
 
     this.images = new ImagePool(this, 640, DEPTH.projectile, Phaser.BlendModes.ADD);
@@ -243,6 +400,7 @@ export class GameScene extends Phaser.Scene {
     hud.seed = seed;
     hud.zones = this.terrain.zones.length;
     this.buildTerrain();
+    this.applyQaEvent();
 
     this.rangeGraphics = this.add.graphics().setDepth(DEPTH.ground + 1);
     this.beamGraphics = this.add.graphics().setDepth(DEPTH.beam).setBlendMode(Phaser.BlendModes.ADD);
@@ -250,6 +408,14 @@ export class GameScene extends Phaser.Scene {
     this.playerSprite = this.add.image(this.playerX, this.playerY, 'player').setDepth(DEPTH.player);
     this.playerSprite.setBlendMode(Phaser.BlendModes.ADD);
     this.playerSprite.setTint(PALETTE.cyan);
+
+    this.shieldSprite = this.add
+      .image(this.playerX, this.playerY, 'zoneRing')
+      .setDepth(DEPTH.player + 0.5)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setTint(PALETTE.white)
+      .setDisplaySize(TYPESAFE_PASSIVE.radius * 2, TYPESAFE_PASSIVE.radius * 2)
+      .setVisible(false);
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, WORLD.width, WORLD.height);
@@ -268,6 +434,7 @@ export class GameScene extends Phaser.Scene {
     keyboard.on('keydown-P', onPauseKey);
     keyboard.on('keydown-ESC', onPauseKey);
     keyboard.on('keydown-M', () => bus.emit(EV.sfxToggle, undefined));
+    keyboard.on('keydown-E', () => this.interactEvent());
 
     const onChoice = (payload: { index: number }) => this.applyChoice(payload.index);
     const onRestart = () => this.scene.restart();
@@ -284,6 +451,11 @@ export class GameScene extends Phaser.Scene {
       this.scale.off('resize', onResize);
       this.fx.clear();
       hud.boss = null;
+      hud.panel = null;
+      hud.events = [];
+      hud.cache = null;
+      hud.gc = null;
+      hud.shield = false;
     });
 
     applyTextResolution(this);
@@ -326,10 +498,17 @@ export class GameScene extends Phaser.Scene {
         this.chooseTimer -= dt;
         return;
       }
-      if (this.run.pendingLevels > 0) {
-        this.openUpgrades();
+      if (this.pendingEvolutions.length > 0) {
+        this.openEvolution();
+      } else if (this.pendingRewards.length > 0) {
+        this.openBossReward();
+      } else if (this.run.pendingLevels > 0) {
+        this.openUpgrades('level');
+      } else if (this.pendingFree > 0) {
+        this.openUpgrades('free');
       } else {
         this.choosing = false;
+        hud.choices = 0;
       }
       return;
     }
@@ -343,10 +522,16 @@ export class GameScene extends Phaser.Scene {
     this.grid.rebuild(this.enemies);
 
     this.updatePlayer(dt);
+    this.updatePassives();
     this.updateTerrain(dt);
     this.updateEnemies(dt);
+    this.updateDeadlockLinks();
+    this.updateBreakpointMarks();
+    this.syncHazardHud();
     this.updateWeapons(dt);
     this.updateProjectiles(dt);
+    this.updateBurn();
+    this.updateChain();
     this.updateOrbs(dt);
     this.updatePickups(dt);
     this.updateSpawner(dt);
@@ -388,6 +573,67 @@ export class GameScene extends Phaser.Scene {
       applyUpgrade(this.run, PASSIVE_IDS[i]);
     }
     this.run.hp = this.run.stats.maxHp;
+  }
+
+  private applyQaPassives(): void {
+    if (typeof window === 'undefined') return;
+    const param = new URLSearchParams(window.location.search).get('passives');
+    if (!param) return;
+    for (const raw of param.split(',')) {
+      const [name, value] = raw.trim().split(':');
+      if (!PASSIVE_IDS.includes(name as PassiveId)) continue;
+      const id = name as PassiveId;
+      const max = PASSIVE_DEFS[id].maxLevel;
+      const requested = value === undefined ? max : Number(value);
+      const target = Number.isFinite(requested)
+        ? Math.min(max, Math.max(0, Math.floor(requested)))
+        : max;
+      while ((this.run.passives[id] ?? 0) < target) applyUpgrade(this.run, id);
+    }
+  }
+
+  private applyQaEvolution(): void {
+    if (typeof window === 'undefined') return;
+    const param = new URLSearchParams(window.location.search).get('evolve');
+    if (!param) return;
+    for (const raw of param.split(',')) {
+      const id = raw.trim() as WeaponId;
+      if (!isEvolutionWeapon(id)) continue;
+      this.run.weapons[id] = Math.max(this.run.weapons[id] ?? 0, EVOLUTION_LEVEL);
+      if (!this.qaEvolutions.includes(id)) this.qaEvolutions.push(id);
+    }
+  }
+
+  private applyQaEvent(): void {
+    if (typeof window === 'undefined' || !this.terrain) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('eventNear') === '1') this.spawnEvent('compile');
+    else if (params.get('packetNear') === '1') this.spawnEvent('packet');
+    else if (params.get('commitNear') === '1') this.spawnEvent('commit');
+  }
+
+  private readQaEventCharge(): number {
+    if (typeof window === 'undefined') return TERRAIN.event.chargeTime;
+    const value = Number(new URLSearchParams(window.location.search).get('eventCharge') ?? '0');
+    return Number.isFinite(value) && value > 0 ? value : TERRAIN.event.chargeTime;
+  }
+
+  private readQaCommitDuration(): number {
+    if (typeof window === 'undefined') return TERRAIN.commit.duration;
+    const value = Number(new URLSearchParams(window.location.search).get('commitDuration') ?? '0');
+    return Number.isFinite(value) && value > 0 ? value : TERRAIN.commit.duration;
+  }
+
+  private readQaCommitNeed(): number {
+    if (typeof window === 'undefined') return TERRAIN.commit.need;
+    const value = Number(new URLSearchParams(window.location.search).get('commitNeed') ?? '0');
+    return Number.isFinite(value) && value > 0 ? value : TERRAIN.commit.need;
+  }
+
+  private readQaBossHp(): number {
+    if (typeof window === 'undefined') return 1;
+    const value = Number(new URLSearchParams(window.location.search).get('bossHp') ?? '0');
+    return Number.isFinite(value) && value > 0 && value < 1 ? value : 1;
   }
 
   private togglePause(): void {
@@ -561,6 +807,101 @@ export class GameScene extends Phaser.Scene {
         g.strokePath();
       }
     }
+
+    this.drawEvolvedBlasts(time);
+    this.drawDaemonAuras(time);
+    this.drawEmpoweredEnemies(time);
+    this.drawBreakpointMarks(time);
+  }
+
+  private drawDaemonAuras(time: number): void {
+    const g = this.zoneGraphics;
+    for (const enemy of this.enemies) {
+      if (enemy.dead || enemy.type !== 'daemon') continue;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 4 + enemy.id);
+      g.fillStyle(PALETTE.purple, 0.035 + 0.02 * pulse);
+      g.fillCircle(enemy.x, enemy.y, DAEMON.radius);
+      g.lineStyle(3, PALETTE.purple, 0.45 + 0.2 * pulse);
+      g.strokeCircle(enemy.x, enemy.y, DAEMON.radius);
+      g.lineStyle(1, PALETTE.white, 0.12 + 0.08 * pulse);
+      g.strokeCircle(enemy.x, enemy.y, DAEMON.radius - 3);
+    }
+  }
+
+  private drawEmpoweredEnemies(time: number): void {
+    const g = this.zoneGraphics;
+    for (const enemy of this.enemies) {
+      if (enemy.dead) continue;
+      const until = enemy.empoweredUntil ?? 0;
+      if (until <= time) continue;
+      const remain = Phaser.Math.Clamp((until - time) / DAEMON.linger, 0, 1);
+      g.lineStyle(2, PALETTE.purple, 0.25 + 0.45 * remain);
+      g.strokeCircle(enemy.x, enemy.y, enemy.radius + 5);
+    }
+  }
+
+  private drawBreakpointMarks(time: number): void {
+    const g = this.zoneGraphics;
+    for (const mark of this.breakpointMarks) {
+      const progress = Phaser.Math.Clamp((time - mark.at) / BREAKPOINT.arm, 0, 1);
+      const pulse = 0.5 + 0.5 * Math.sin(time * 18);
+      g.fillStyle(PALETTE.red, 0.12 + 0.08 * pulse);
+      g.fillCircle(mark.x, mark.y, mark.radius);
+      g.lineStyle(4, PALETTE.red, 0.75 + 0.2 * pulse);
+      g.strokeCircle(mark.x, mark.y, mark.radius);
+      g.lineStyle(2, PALETTE.white, 0.6 + 0.3 * (1 - progress));
+      g.strokeCircle(mark.x, mark.y, mark.radius * (1 - 0.8 * progress));
+      g.lineStyle(2, PALETTE.red, 0.55);
+      g.beginPath();
+      g.moveTo(mark.x - 10, mark.y);
+      g.lineTo(mark.x + 10, mark.y);
+      g.moveTo(mark.x, mark.y - 10);
+      g.lineTo(mark.x, mark.y + 10);
+      g.strokePath();
+    }
+  }
+
+  private drawEvolvedBlasts(time: number): void {
+    const g = this.zoneGraphics;
+    for (const patch of this.burnPatches) {
+      const life = Phaser.Math.Clamp((patch.until - time) / BOMB_BURN.duration, 0, 1);
+      const pulse = 0.06 * Math.sin(time * 7 + patch.x);
+      g.fillStyle(PALETTE.orange, 0.08 + 0.05 * life + pulse);
+      g.fillCircle(patch.x, patch.y, patch.radius);
+      g.lineStyle(2, PALETTE.orange, 0.25 + 0.25 * life);
+      g.strokeCircle(patch.x, patch.y, patch.radius);
+    }
+    for (const blast of this.chainBlasts) {
+      const progress = Phaser.Math.Clamp(1 - (blast.at - time) / BOMB_CHAIN.delay, 0, 1);
+      const radius = blast.radius * (0.35 + 0.65 * progress);
+      g.lineStyle(2, PALETTE.yellow, 0.35 + 0.5 * progress);
+      g.strokeCircle(blast.x, blast.y, radius);
+      g.lineStyle(1, PALETTE.orange, 0.25);
+      g.strokeCircle(blast.x, blast.y, blast.radius);
+    }
+  }
+
+  private aliveGuards(event: TerrainEvent): number {
+    let alive = 0;
+    for (const id of event.guardIds) {
+      const guard = this.enemies.find((enemy) => enemy.id === id && !enemy.dead);
+      if (guard) alive += 1;
+    }
+    return alive;
+  }
+
+  private eventDetail(event: TerrainEvent, time: number): string {
+    const remaining = Math.max(0, Math.ceil(event.deadline - time));
+    if (!event.engaged) return `${remaining}s`;
+    if (event.kind === 'compile') {
+      const speed = Math.round((1 - TERRAIN.event.compileAttackSpeed) * 100);
+      const taken = Math.round((TERRAIN.event.compileDamageTaken - 1) * 100);
+      return `${Math.round(event.charge * 100)}% · 攻速 -${speed}% · 受伤 +${taken}%`;
+    }
+    if (event.kind === 'packet') {
+      return `守卫 ${this.aliveGuards(event)}/${event.guardIds.length} · ${remaining}s`;
+    }
+    return `${event.kills}/${event.need} · ${remaining}s`;
   }
 
   private reshuffleTerrain(): void {
@@ -667,12 +1008,390 @@ export class GameScene extends Phaser.Scene {
     } else {
       hud.zone = null;
     }
+
+    this.updateEvents(dt);
     this.drawZones();
+  }
+
+  private maybeSpawnEvent(): void {
+    if (this.activeEvent || this.run.time < this.nextEventAt || this.activeBoss) return;
+    if (this.nextBossAt - this.run.time <= TERRAIN.eventSystem.bossBuffer) return;
+    if (!this.spawnEvent(this.nextEventKind())) this.nextEventAt = this.run.time + 5;
+  }
+
+  private nextEventKind(): TerrainEvent['kind'] {
+    if (this.eventBag.length === 0) {
+      this.eventBag = this.rng.shuffle(['compile', 'packet', 'commit'] as TerrainEvent['kind'][]);
+    }
+    return this.eventBag.pop()!;
+  }
+
+  private eventHex(kind: TerrainEvent['kind']): string {
+    return `#${TERRAIN_EVENTS[kind].color.toString(16).padStart(6, '0')}`;
+  }
+
+  private spawnEvent(kind: TerrainEvent['kind']): boolean {
+    const time = this.run.time;
+    const event: TerrainEvent = {
+      id: 0,
+      kind,
+      charge: 0,
+      done: false,
+      deadline: time + TERRAIN.eventSystem.acceptWindow,
+      engaged: false,
+      guardIds: [],
+      kills: 0,
+      need: kind === 'commit' ? this.commitNeed : 0,
+    };
+    this.activeEvent = event;
+    this.activeCommit = null;
+    this.eventSpawnTimer = TERRAIN.event.spawnEvery;
+    this.commitSpawnTimer = 0;
+    hud.events = [];
+    const def = TERRAIN_EVENTS[kind];
+    bus.emit(EV.banner, {
+      text: 'NEW OBJECTIVE',
+      sub: `${def.label} ${def.name} · press E to accept`,
+      ms: 2400,
+      color: this.eventHex(kind),
+      emphasis: true,
+    });
+    bus.emit('sfx', 'levelup');
+    return true;
+  }
+
+  private finishEvent(): void {
+    this.activeEvent = null;
+    this.activeCommit = null;
+    this.nextEventAt = this.run.time + TERRAIN.eventSystem.cooldown;
+    hud.events = [];
+  }
+
+  private interactEvent(): void {
+    if (this.run.over || this.choosing || this.paused || this.entrance) return;
+    const event = this.activeEvent;
+    if (!event || event.done || event.engaged) return;
+    if (event.kind === 'compile') {
+      event.engaged = true;
+      event.charge = 0;
+      event.deadline = this.run.time + this.eventChargeTime;
+      this.eventSpawnTimer = 0;
+      bus.emit(EV.banner, {
+        text: 'COMPILING',
+        sub: 'attack speed down · damage taken up · enemies inbound',
+        ms: 1300,
+      });
+      bus.emit('sfx', 'choose');
+      return;
+    }
+    if (event.kind === 'packet') {
+      this.engagePacket(event);
+      return;
+    }
+    this.engageCommit(event);
+  }
+
+  private updateEvents(dt: number): void {
+    this.maybeSpawnEvent();
+    const event = this.activeEvent;
+    if (!event) {
+      hud.events = [];
+      return;
+    }
+    const time = this.run.time;
+    if (event.done) {
+      this.finishEvent();
+      return;
+    }
+    if (!event.engaged) {
+      if (time >= event.deadline) {
+        event.done = true;
+        bus.emit(EV.banner, {
+          text: 'OBJECTIVE EXPIRED',
+          sub: `${TERRAIN_EVENTS[event.kind].name} · not accepted`,
+          ms: 2200,
+          color: '#ffa500',
+          emphasis: true,
+        });
+        bus.emit('sfx', 'hurt');
+        this.finishEvent();
+        return;
+      }
+    } else if (event.kind === 'compile') {
+      this.updateCompileEvent(event, dt);
+    } else if (event.kind === 'packet') {
+      this.updatePacketEvent(event);
+    } else {
+      this.updateCommitEvent(event, dt);
+    }
+    if (event.done) {
+      this.finishEvent();
+      return;
+    }
+    const def = TERRAIN_EVENTS[event.kind];
+    const remaining = Math.max(0, event.deadline - time);
+    let progress = 0;
+    if (!event.engaged) {
+      progress = 1 - remaining / TERRAIN.eventSystem.acceptWindow;
+    } else if (event.kind === 'compile') {
+      progress = event.charge;
+    } else if (event.kind === 'packet') {
+      progress = 1 - remaining / TERRAIN.packet.fightTime;
+    } else {
+      progress = event.kills / Math.max(1, event.need);
+    }
+    hud.events = [
+      {
+        kind: event.kind,
+        label: def.label,
+        name: def.name,
+        color: def.color,
+        charge: event.kind === 'compile' ? event.charge : 0,
+        progress: Phaser.Math.Clamp(progress, 0, 1),
+        active: event.engaged,
+        interactable: !event.engaged,
+        detail: this.eventDetail(event, time),
+      },
+    ];
+  }
+
+  private updateCompileEvent(event: TerrainEvent, dt: number): void {
+    const time = this.run.time;
+    event.charge = Phaser.Math.Clamp(
+      1 - (event.deadline - time) / this.eventChargeTime,
+      0,
+      1,
+    );
+    this.eventSpawnTimer -= dt;
+    if (this.eventSpawnTimer <= 0) {
+      this.eventSpawnTimer = TERRAIN.event.spawnEvery;
+      this.spawnEventWave();
+    }
+    if (time >= event.deadline) this.completeCompileEvent(event);
+  }
+
+  private updatePacketEvent(event: TerrainEvent): void {
+    if (event.guardIds.length > 0 && this.aliveGuards(event) === 0) {
+      this.completePacket(event);
+      return;
+    }
+    if (this.run.time >= event.deadline) this.failPacket(event);
+  }
+
+  private updateCommitEvent(event: TerrainEvent, dt: number): void {
+    this.commitSpawnTimer -= dt;
+    if (this.commitSpawnTimer <= 0) {
+      this.commitSpawnTimer = TERRAIN.commit.spawnEvery;
+      for (let i = 0; i < TERRAIN.commit.spawnCount; i++) this.spawnChallengeEnemy();
+    }
+    if (event.kills >= event.need) {
+      this.completeCommit(event);
+      return;
+    }
+    if (this.run.time >= event.deadline) this.failCommit(event);
+  }
+
+  private engagePacket(event: TerrainEvent): void {
+    event.engaged = true;
+    event.deadline = this.run.time + TERRAIN.packet.fightTime;
+    const kinds: EnemyTypeId[] = ['race', 'memleak', 'thrower'];
+    for (let i = 0; i < TERRAIN.packet.guards; i++) {
+      const angle = (i / TERRAIN.packet.guards) * TAU + this.rng.range(-0.2, 0.2);
+      const distance = TERRAIN.packet.guardDistance;
+      const x = Phaser.Math.Clamp(this.playerX + Math.cos(angle) * distance, 40, WORLD.width - 40);
+      const y = Phaser.Math.Clamp(this.playerY + Math.sin(angle) * distance, 40, WORLD.height - 40);
+      const guard = this.spawnEnemy(kinds[i % kinds.length], x, y, true);
+      if (!guard) continue;
+      guard.summoned = true;
+      guard.color = TERRAIN_EVENTS.packet.color;
+      guard.hp *= TERRAIN.packet.guardHpScale;
+      guard.maxHp *= TERRAIN.packet.guardHpScale;
+      guard.damage *= TERRAIN.packet.guardDamageScale;
+      if (guard.sprite) guard.sprite.setTint(guard.color);
+      event.guardIds.push(guard.id);
+    }
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.packet.color, 26, 320, 0.6, 0.9);
+    this.cameras.main.flash(140, 0, 255, 255, false);
+    bus.emit('sfx', 'emp');
+    bus.emit(EV.banner, {
+      text: 'PACKET OPENED',
+      sub: 'guards deployed · finish them before the deadline',
+      ms: 1600,
+      color: this.eventHex('packet'),
+      emphasis: true,
+    });
+  }
+
+  private completePacket(event: TerrainEvent): void {
+    event.done = true;
+    const candidates = evolutionCandidates(this.run, this.pendingEvolutions);
+    if (candidates.length > 0) {
+      const weapon = candidates.sort(
+        (a, b) =>
+          (this.run.weapons[b] ?? 0) - (this.run.weapons[a] ?? 0) ||
+          WEAPON_IDS.indexOf(a) - WEAPON_IDS.indexOf(b),
+      )[0];
+      this.queueEvolution(weapon, false);
+      this.chooseTimer = 0.5;
+      bus.emit(EV.banner, {
+        text: 'PACKET RESTORED',
+        sub: `${WEAPON_DEFS[weapon].name} · evolution unlocked`,
+        ms: 1600,
+      });
+    } else {
+      this.pendingFree += 1;
+      this.choosing = true;
+      this.chooseTimer = 0.5;
+      hud.choices = this.pendingChoiceCount();
+      bus.emit(EV.banner, {
+        text: 'PACKET RESTORED',
+        sub: 'no evolution target · free module',
+        ms: 2200,
+        color: this.eventHex('packet'),
+        emphasis: true,
+      });
+    }
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.packet.color, 30, 380, 0.7, 1);
+    this.beams.push({
+      kind: 'ring',
+      x: this.playerX,
+      y: this.playerY,
+      angle: 0,
+      length: 40,
+      width: 6,
+      spread: 0,
+      color: TERRAIN_EVENTS.packet.color,
+      life: 0.6,
+      maxLife: 0.6,
+      grow: 10,
+    });
+    this.cameras.main.flash(160, 0, 255, 255, false);
+    bus.emit('sfx', 'levelup');
+  }
+
+  private failPacket(event: TerrainEvent): void {
+    event.done = true;
+    this.fx.burst(this.playerX, this.playerY, PALETTE.red, 18, 260, 0.5, 0.8);
+    bus.emit('sfx', 'hurt');
+    bus.emit(EV.banner, {
+      text: 'PACKET LOST',
+      sub: 'guards survived · no evolution',
+      ms: 2200,
+      color: '#ff0040',
+      emphasis: true,
+    });
+  }
+
+  private engageCommit(event: TerrainEvent): void {
+    event.engaged = true;
+    event.deadline = this.run.time + this.commitDuration;
+    event.kills = 0;
+    event.need = this.commitNeed;
+    this.activeCommit = event;
+    this.commitSpawnTimer = 0;
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.commit.color, 30, 360, 0.7, 1);
+    this.cameras.main.flash(160, 255, 0, 64, false);
+    bus.emit('sfx', 'boss');
+    bus.emit(EV.banner, {
+      text: 'COMMIT ACCEPTED',
+      sub: `kill ${event.need} stronger processes in ${this.commitDuration}s`,
+      ms: 1700,
+      color: this.eventHex('commit'),
+      emphasis: true,
+    });
+  }
+
+  private spawnChallengeEnemy(): void {
+    const enemy = this.spawnEnemy();
+    if (!enemy) return;
+    enemy.challenge = true;
+    enemy.hp *= TERRAIN.commit.hpScale;
+    enemy.maxHp *= TERRAIN.commit.hpScale;
+    enemy.damage *= TERRAIN.commit.damageScale;
+    enemy.color = PALETTE.orange;
+    if (enemy.sprite) enemy.sprite.setTint(enemy.color);
+  }
+
+  private completeCommit(event: TerrainEvent): void {
+    if (event.done) return;
+    event.done = true;
+    if (this.activeCommit === event) this.activeCommit = null;
+    const reward = rollRareModule(this.rng);
+    applyBossReward(this.run, reward);
+    hud.rareModules += 1;
+    this.refreshHudLists();
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.commit.color, 30, 380, 0.7, 1);
+    this.cameras.main.flash(160, 255, 0, 64, false);
+    bus.emit('sfx', 'levelup');
+    bus.emit(EV.banner, {
+      text: 'COMMIT MERGED',
+      sub: reward.name,
+      ms: 2200,
+      color: this.eventHex('commit'),
+      emphasis: true,
+    });
+  }
+
+  private failCommit(event: TerrainEvent): void {
+    event.done = true;
+    if (this.activeCommit === event) this.activeCommit = null;
+    this.fx.burst(this.playerX, this.playerY, PALETTE.red, 16, 240, 0.5, 0.8);
+    bus.emit('sfx', 'hurt');
+    bus.emit(EV.banner, {
+      text: 'COMMIT REVERTED',
+      sub: 'quota missed · no module',
+      ms: 2200,
+      color: '#ff0040',
+      emphasis: true,
+    });
+  }
+
+  private spawnEventWave(): void {
+    for (let i = 0; i < TERRAIN.event.spawnCount; i++) this.spawnEnemy();
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.compile.color, 10, 210, 0.5, 0.7);
+    bus.emit('sfx', 'shoot');
+  }
+
+  private completeCompileEvent(event: TerrainEvent): void {
+    event.done = true;
+    event.charge = 1;
+    this.pendingFree += 1;
+    this.choosing = true;
+    this.chooseTimer = 0.6;
+    hud.choices = this.pendingChoiceCount();
+    this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.compile.color, 30, 360, 0.8, 1);
+    this.beams.push({
+      kind: 'ring',
+      x: this.playerX,
+      y: this.playerY,
+      angle: 0,
+      length: 40,
+      width: 6,
+      spread: 0,
+      color: TERRAIN_EVENTS.compile.color,
+      life: 0.6,
+      maxLife: 0.6,
+      grow: 10,
+    });
+    this.cameras.main.flash(200, 255, 224, 102, false);
+    bus.emit('sfx', 'levelup');
+    bus.emit(EV.banner, {
+      text: 'COMPILE COMPLETE',
+      sub: 'free module unlocked',
+      ms: 2200,
+      color: this.eventHex('compile'),
+      emphasis: true,
+    });
   }
 
   private damageOverTime(amount: number): void {
     if (this.run.over || amount <= 0) return;
-    this.run.hp -= amount;
+    this.lastDamageAt = this.run.time;
+    if (this.typesafeShield) {
+      this.breakShield();
+      return;
+    }
+    this.run.hp -= amount * this.eventDamageTakenMult();
     if (this.run.hp <= 0) {
       this.run.hp = 0;
       this.endRun();
@@ -713,6 +1432,139 @@ export class GameScene extends Phaser.Scene {
     this.playerSprite.setTint(hurt ? PALETTE.red : PALETTE.cyan);
     const scale = 1 + Math.sin(this.run.time * 3.2) * 0.03;
     this.playerSprite.setScale(scale * TEX_SCALE);
+    if (this.shieldSprite) {
+      if (this.typesafeShield) {
+        this.shieldSprite.setVisible(true);
+        this.shieldSprite.setPosition(this.playerX, this.playerY);
+        this.shieldSprite.setRotation(this.run.time * 0.6);
+        this.shieldSprite.setAlpha(0.55 + 0.25 * Math.sin(this.run.time * 5));
+      } else {
+        this.shieldSprite.setVisible(false);
+      }
+    }
+  }
+
+  private updatePassives(): void {
+    const time = this.run.time;
+    if (this.cacheStacks > 0 && time - this.cacheAt > CACHE_PASSIVE.window) {
+      this.cacheStacks = 0;
+    }
+    if (this.gcCharge > 0 && time - this.gcLastPickup > GC_PASSIVE.window) {
+      this.gcCharge = 0;
+    }
+    const typesafe = this.run.passives.typesafe ?? 0;
+    if (typesafe > 0 && !this.typesafeShield && time - this.lastDamageAt >= TYPESAFE_PASSIVE.delay(typesafe)) {
+      this.typesafeShield = true;
+      this.fx.burst(this.playerX, this.playerY, PALETTE.white, 16, 220, 0.5, 0.8);
+      this.fx.text(this.playerX, this.playerY - 40, 'TYPE SAFE', '#cdd6f4', 14);
+      bus.emit('sfx', 'pickup');
+    }
+    this.syncPassiveHud();
+  }
+
+  private syncPassiveHud(): void {
+    const cacheLevel = this.run.passives.cache ?? 0;
+    hud.cache =
+      cacheLevel > 0 ? { stacks: this.cacheStacks, max: CACHE_PASSIVE.maxStacks } : null;
+    const gcLevel = this.run.passives.gc ?? 0;
+    hud.gc =
+      gcLevel > 0
+        ? { charge: this.gcCharge, need: GC_PASSIVE.threshold(gcLevel), sweeps: this.gcSweeps }
+        : null;
+    hud.shield = this.typesafeShield;
+  }
+
+  private registerFocusTarget(id: number | null): void {
+    if (id === null || id === 0) return;
+    if ((this.run.passives.cache ?? 0) <= 0) return;
+    if (this.run.time - this.cacheAt > CACHE_PASSIVE.window) this.cacheStacks = 0;
+    if (this.cacheTargetId === id) {
+      this.cacheStacks = Math.min(CACHE_PASSIVE.maxStacks, this.cacheStacks + 1);
+    } else {
+      this.cacheTargetId = id;
+      this.cacheStacks = 0;
+    }
+    this.cacheAt = this.run.time;
+  }
+
+  private cacheSpeedMult(): number {
+    const level = this.run.passives.cache ?? 0;
+    if (level <= 0 || this.cacheStacks <= 0) return 1;
+    return 1 + this.cacheStacks * CACHE_PASSIVE.perStack(level);
+  }
+
+  private cacheCooldownMult(): number {
+    return 1 / this.cacheSpeedMult();
+  }
+
+  private compileActive(): boolean {
+    const event = this.activeEvent;
+    return event !== null && event.kind === 'compile' && event.engaged && !event.done;
+  }
+
+  private eventAttackSpeedMult(): number {
+    return this.compileActive() ? TERRAIN.event.compileAttackSpeed : 1;
+  }
+
+  private eventCooldownMult(): number {
+    return 1 / this.eventAttackSpeedMult();
+  }
+
+  private eventDamageTakenMult(): number {
+    return this.compileActive() ? TERRAIN.event.compileDamageTaken : 1;
+  }
+
+  private registerXpPickup(count: number): void {
+    const level = this.run.passives.gc ?? 0;
+    if (level <= 0 || count <= 0) return;
+    if (this.run.time - this.gcLastPickup > GC_PASSIVE.window) this.gcCharge = 0;
+    this.gcLastPickup = this.run.time;
+    this.gcCharge += count;
+    const need = GC_PASSIVE.threshold(level);
+    if (this.gcCharge < need) return;
+    this.gcCharge = 0;
+    this.gcSweeps += 1;
+    this.sweepGc(level);
+  }
+
+  private sweepGc(level: number): void {
+    const radius = GC_PASSIVE.radius(level);
+    const damage = GC_PASSIVE.damage(level) * this.run.stats.damageMult;
+    const list = this.grid.query(this.playerX, this.playerY, radius, this.scratch2);
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.dead) continue;
+      const dx = e.x - this.playerX;
+      const dy = e.y - this.playerY;
+      const dist = Math.hypot(dx, dy);
+      if (dist > radius + e.radius) continue;
+      this.damageEnemy(e, damage, false, (dx / (dist || 1)) * 220, (dy / (dist || 1)) * 220, true);
+    }
+    this.fx.burst(this.playerX, this.playerY, PALETTE.purple, 24, 320, 0.6, 0.9);
+    this.beams.push({
+      kind: 'ring',
+      x: this.playerX,
+      y: this.playerY,
+      angle: 0,
+      length: 40,
+      width: 6,
+      spread: 0,
+      color: PALETTE.purple,
+      life: 0.5,
+      maxLife: 0.5,
+      grow: 8,
+    });
+    this.fx.text(this.playerX, this.playerY - 48, 'GC SWEEP', '#bd5fff', 16);
+    bus.emit('sfx', 'emp');
+  }
+
+  private breakShield(): void {
+    this.typesafeShield = false;
+    this.lastDamageAt = this.run.time;
+    this.fx.burst(this.playerX, this.playerY, PALETTE.white, 20, 260, 0.55, 0.9);
+    this.fx.text(this.playerX, this.playerY - 34, 'TYPE SAFE', '#cdd6f4', 16);
+    this.cameras.main.flash(120, 205, 214, 244, false);
+    bus.emit('sfx', 'hit');
   }
 
   private updateEnemies(dt: number): void {
@@ -720,6 +1572,7 @@ export class GameScene extends Phaser.Scene {
     const px = this.playerX;
     const py = this.playerY;
     const speedScale = enemySpeedScale(time);
+    this.updateEnemyAuras();
 
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i];
@@ -751,6 +1604,16 @@ export class GameScene extends Phaser.Scene {
           this.throwerVolley(e);
         }
       }
+      if (e.type === 'breakpoint') {
+        if (dist < BREAKPOINT.retreatDistance) speed = -speed * 0.7;
+        else if (dist < BREAKPOINT.holdDistance) speed *= 0.2;
+        e.castAt -= dt;
+        if (e.castAt <= 0 && dist < BREAKPOINT.range) {
+          e.castAt = BREAKPOINT.castEvery;
+          this.castBreakpointMark(e);
+        }
+      }
+      if ((e.empoweredUntil ?? 0) > time) speed *= DAEMON.speed;
       if (e.slowUntil !== undefined && e.slowUntil > time) speed *= TERRAIN.effects.leakSpeed;
       if (e.boss) {
         speed *= 1 + (this.bossPhase(e) - 1) * 0.22;
@@ -795,6 +1658,182 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private syncHazardHud(): void {
+    let breakpoints = 0;
+    let daemons = 0;
+    let empowered = 0;
+    const time = this.run.time;
+    for (const enemy of this.enemies) {
+      if (enemy.dead) continue;
+      if (enemy.type === 'breakpoint') breakpoints += 1;
+      if (enemy.type === 'daemon') daemons += 1;
+      if ((enemy.empoweredUntil ?? 0) > time) empowered += 1;
+    }
+    hud.hazards = {
+      links: this.deadlockLinks.length,
+      marks: this.breakpointMarks.length,
+      breakpoints,
+      daemons,
+      empowered,
+    };
+  }
+
+  private isTypeCapped(id: EnemyTypeId): boolean {
+    const cap = id === 'breakpoint' ? BREAKPOINT.maxAlive : id === 'daemon' ? DAEMON.maxAlive : 0;
+    if (cap <= 0) return false;
+    let alive = 0;
+    for (const enemy of this.enemies) {
+      if (!enemy.dead && enemy.type === id) alive += 1;
+    }
+    return alive >= cap;
+  }
+
+  private pickSpawnType(): EnemyTypeId {
+    const time = this.run.time;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const id = pickEnemyType(time, this.rng.next());
+      if (!this.isTypeCapped(id)) return id;
+    }
+    const fallback = SPAWN_POOL.filter(
+      (id) => ENEMY_DEFS[id].unlockAt <= time && !this.isTypeCapped(id),
+    );
+    return fallback.length > 0 ? this.rng.pick(fallback) : 'syntax';
+  }
+
+  private updateEnemyAuras(): void {
+    const time = this.run.time;
+    const daemons = this.enemies.filter((enemy) => !enemy.dead && enemy.type === 'daemon');
+    if (daemons.length === 0) return;
+    for (const daemon of daemons) {
+      const candidates: Enemy[] = [];
+      for (const enemy of this.enemies) {
+        if (enemy.dead || enemy.type === 'daemon') continue;
+        const dx = enemy.x - daemon.x;
+        const dy = enemy.y - daemon.y;
+        if (dx * dx + dy * dy <= DAEMON.radius * DAEMON.radius) candidates.push(enemy);
+      }
+      candidates.sort(
+        (a, b) =>
+          (a.x - daemon.x) ** 2 +
+          (a.y - daemon.y) ** 2 -
+          ((b.x - daemon.x) ** 2 + (b.y - daemon.y) ** 2),
+      );
+      const count = Math.min(DAEMON.maxTargets, candidates.length);
+      for (let i = 0; i < count; i++) candidates[i].empoweredUntil = time + DAEMON.linger;
+    }
+  }
+
+  private isDeadlockLinked(id: number): boolean {
+    return this.deadlockLinks.some((link) => link.aId === id || link.bId === id);
+  }
+
+  private findEnemy(id: number): Enemy | null {
+    return this.enemies.find((enemy) => enemy.id === id && !enemy.dead) ?? null;
+  }
+
+  private updateDeadlockLinks(): void {
+    const time = this.run.time;
+    for (let i = this.deadlockLinks.length - 1; i >= 0; i--) {
+      const link = this.deadlockLinks[i];
+      const a = this.findEnemy(link.aId);
+      const b = this.findEnemy(link.bId);
+      if (!a || !b || time >= link.until) {
+        const last = this.deadlockLinks.pop()!;
+        if (i < this.deadlockLinks.length) this.deadlockLinks[i] = last;
+        continue;
+      }
+      if (time < link.armAt) continue;
+      const distance = pointSegmentDistance(this.playerX, this.playerY, a.x, a.y, b.x, b.y);
+      if (distance > PLAYER.radius + DEADLOCK.thickness) continue;
+      if (time - link.hitAt < DEADLOCK.hitEvery) continue;
+      link.hitAt = time;
+      const buff =
+        (a.empoweredUntil ?? 0) > time || (b.empoweredUntil ?? 0) > time ? DAEMON.damage : 1;
+      this.hurtPlayer(Math.max(1, DEADLOCK.damage * buff - this.run.stats.armor));
+      this.fx.burst(this.playerX, this.playerY, PALETTE.cyan, 6, 150, 0.35, 0.5);
+    }
+
+    for (let i = 0; i < this.enemies.length; i++) {
+      const a = this.enemies[i];
+      if (a.dead || a.type !== 'deadlock' || a.castAt > time || this.isDeadlockLinked(a.id)) continue;
+      let partner: Enemy | null = null;
+      let best = DEADLOCK.pairRange;
+      for (let j = 0; j < this.enemies.length; j++) {
+        const b = this.enemies[j];
+        if (b === a || b.dead || b.type !== 'deadlock' || b.castAt > time || this.isDeadlockLinked(b.id)) {
+          continue;
+        }
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        if (distance <= best) {
+          best = distance;
+          partner = b;
+        }
+      }
+      if (!partner) continue;
+      const armAt = time + DEADLOCK.arm;
+      const until = armAt + DEADLOCK.duration;
+      this.deadlockLinks.push({ aId: a.id, bId: partner.id, armAt, until, hitAt: -10 });
+      a.castAt = until + DEADLOCK.cooldown;
+      partner.castAt = until + DEADLOCK.cooldown;
+      this.fx.burst(
+        (a.x + partner.x) / 2,
+        (a.y + partner.y) / 2,
+        PALETTE.cyan,
+        10,
+        180,
+        0.4,
+        0.6,
+      );
+    }
+  }
+
+  private castBreakpointMark(e: Enemy): void {
+    const now = this.run.time;
+    this.breakpointMarks.push({
+      x: this.playerX,
+      y: this.playerY,
+      radius: BREAKPOINT.radius,
+      damage:
+        BREAKPOINT.damage *
+        ((e.empoweredUntil ?? 0) > now ? DAEMON.damage : 1),
+      at: now,
+      blastAt: now + BREAKPOINT.arm,
+    });
+    if (this.breakpointMarks.length > 12) this.breakpointMarks.shift();
+    this.fx.burst(e.x, e.y, PALETTE.red, 6, 120, 0.3, 0.5);
+    this.fx.text(this.playerX, this.playerY - 48, '! INCOMING', '#ff0040', 14);
+    bus.emit('sfx', 'shoot');
+  }
+
+  private updateBreakpointMarks(): void {
+    const time = this.run.time;
+    for (let i = this.breakpointMarks.length - 1; i >= 0; i--) {
+      const mark = this.breakpointMarks[i];
+      if (time < mark.blastAt) continue;
+      const last = this.breakpointMarks.pop()!;
+      if (i < this.breakpointMarks.length) this.breakpointMarks[i] = last;
+      this.fx.burst(mark.x, mark.y, PALETTE.red, 20, 300, 0.55, 0.9);
+      this.beams.push({
+        kind: 'ring',
+        x: mark.x,
+        y: mark.y,
+        angle: 0,
+        length: mark.radius,
+        width: 5,
+        spread: 0,
+        color: PALETTE.red,
+        life: 0.35,
+        maxLife: 0.35,
+        grow: 0.18,
+      });
+      this.cameras.main.shake(120, 0.004);
+      bus.emit('sfx', 'explode');
+      if (Math.hypot(this.playerX - mark.x, this.playerY - mark.y) <= mark.radius + PLAYER.radius) {
+        this.hurtPlayer(Math.max(1, mark.damage - this.run.stats.armor));
+      }
+    }
+  }
+
   private separate(e: Enemy, dt: number): void {
     const neighbors = this.grid.query(e.x, e.y, e.radius * 1.8, this.scratch);
     let pushX = 0;
@@ -819,7 +1858,8 @@ export class GameScene extends Phaser.Scene {
 
   private touchPlayer(e: Enemy): void {
     if (this.invulnUntil > this.run.time) return;
-    const damage = Math.max(1, e.damage - this.run.stats.armor);
+    const buff = (e.empoweredUntil ?? 0) > this.run.time ? DAEMON.damage : 1;
+    const damage = Math.max(1, e.damage * buff - this.run.stats.armor);
     this.hurtPlayer(damage);
     const dx = this.playerX - e.x;
     const dy = this.playerY - e.y;
@@ -833,7 +1873,14 @@ export class GameScene extends Phaser.Scene {
 
   private hurtPlayer(damage: number): void {
     if (this.run.over) return;
-    this.run.hp -= damage;
+    if (this.typesafeShield) {
+      this.breakShield();
+      this.invulnUntil = this.run.time + PLAYER.invulnTime;
+      return;
+    }
+    const incoming = Math.max(1, damage * this.eventDamageTakenMult());
+    this.run.hp -= incoming;
+    this.lastDamageAt = this.run.time;
     this.invulnUntil = this.run.time + PLAYER.invulnTime;
     hud.damageFlash = 1;
     this.cameras.main.shake(160, 0.006);
@@ -843,13 +1890,19 @@ export class GameScene extends Phaser.Scene {
       this.run.hp = 0;
       this.endRun();
     } else {
-      bus.emit(EV.banner, { text: `-${Math.round(damage)} HP`, sub: 'segmentation fault avoided', ms: 620 });
+      bus.emit(EV.banner, { text: `-${Math.round(incoming)} HP`, sub: 'segmentation fault avoided', ms: 620 });
     }
   }
 
   private endRun(): void {
     this.run.over = true;
     hud.gameOver = true;
+    hud.panel = null;
+    hud.panelCards = 0;
+    hud.events = [];
+    hud.cache = null;
+    hud.gc = null;
+    hud.shield = false;
     syncHud(this.run, this.xpNeed);
     this.fx.burst(this.playerX, this.playerY, PALETTE.cyan, 46, 340, 1.2, 1.1);
     this.fx.burst(this.playerX, this.playerY, PALETTE.red, 26, 240, 1.4, 1.2);
@@ -1017,6 +2070,7 @@ export class GameScene extends Phaser.Scene {
 
   private throwerVolley(e: Enemy): void {
     const base = Math.atan2(this.playerY - e.y, this.playerX - e.x);
+    const buff = (e.empoweredUntil ?? 0) > this.run.time ? DAEMON.damage : 1;
     for (let i = 0; i < THROWER.bullets; i++) {
       const angle = base + (i - (THROWER.bullets - 1) / 2) * THROWER.spread;
       this.spawnProjectile({
@@ -1024,7 +2078,7 @@ export class GameScene extends Phaser.Scene {
         y: e.y,
         vx: Math.cos(angle) * THROWER.speed,
         vy: Math.sin(angle) * THROWER.speed,
-        damage: THROWER.damage,
+        damage: THROWER.damage * buff,
         radius: 10,
         life: 5,
         pierce: 0,
@@ -1076,24 +2130,44 @@ export class GameScene extends Phaser.Scene {
         this.weaponTimers.set(id, timer);
         continue;
       }
-      this.weaponTimers.set(id, def.cooldown(level) * stats.cooldownMult * this.zoneMods.cooldown);
+      this.weaponTimers.set(
+        id,
+        def.cooldown(level) *
+          stats.cooldownMult *
+          this.zoneMods.cooldown *
+          this.cacheCooldownMult() *
+          this.eventCooldownMult(),
+      );
       this.fireWeapon(id, level);
     }
   }
 
-  private pickTargetsAround(x: number, y: number, range: number): Enemy | null {
+  private pickTargetsAround(
+    x: number,
+    y: number,
+    range: number,
+    exclude?: Set<number>,
+    preferAngle?: number,
+  ): Enemy | null {
     let best: Enemy | null = null;
-    let bestDist = range * range;
+    let bestScore = range * range;
     const list = this.grid.query(x, y, range, this.scratch2);
     for (let i = 0; i < list.length; i++) {
       const e = list[i];
-      if (e.dead) continue;
+      if (e.dead || exclude?.has(e.id)) continue;
       const dx = e.x - x;
       const dy = e.y - y;
       const d = dx * dx + dy * dy;
       const bias = e.boss ? 0.25 : 1;
-      if (d * bias < bestDist) {
-        bestDist = d * bias;
+      let score = d * bias;
+      if (preferAngle !== undefined) {
+        const worldAngle = Math.atan2(e.y - this.playerY, e.x - this.playerX);
+        let diff = Math.abs(worldAngle - preferAngle) % TAU;
+        if (diff > Math.PI) diff = TAU - diff;
+        score *= 0.35 + diff / Math.PI;
+      }
+      if (score < bestScore) {
+        bestScore = score;
         best = e;
       }
     }
@@ -1117,6 +2191,7 @@ export class GameScene extends Phaser.Scene {
     if (id === 'dart') {
       const count = dartCount(level) + bonus;
       const targets = this.pickTargets(count, SPAWN.engageRange);
+      this.registerFocusTarget(targets[0]?.id ?? null);
       for (let i = 0; i < count; i++) {
         const target = targets[i % Math.max(1, targets.length)];
         const angle = target
@@ -1138,6 +2213,8 @@ export class GameScene extends Phaser.Scene {
           texture: 'w_dart',
           fuse: 0,
           blast: 0,
+          weapon: 'dart',
+          bounces: this.run.evolutions.dart === 'dart_bounce' ? DART_BOUNCE.bounces : 0,
         });
       }
       bus.emit('sfx', 'shoot');
@@ -1147,6 +2224,7 @@ export class GameScene extends Phaser.Scene {
     if (id === 'bomb') {
       const count = bombCount(level) + bonus;
       const targets = this.pickTargets(count, SPAWN.engageRange);
+      this.registerFocusTarget(targets[0]?.id ?? null);
       for (let i = 0; i < count; i++) {
         const target = targets[i % Math.max(1, targets.length)];
         const angle = target
@@ -1155,6 +2233,7 @@ export class GameScene extends Phaser.Scene {
         const dist = target ? Math.hypot(target.x - this.playerX, target.y - this.playerY) : 240;
         const travel = Phaser.Math.Clamp(dist, 70, SPAWN.engageRange);
         const fuse = travel / 420;
+        const hold = this.run.evolutions.bomb === 'bomb_chain' ? BOMB_CHAIN.fuseBonus : 0;
         this.spawnProjectile({
           x: this.playerX,
           y: this.playerY,
@@ -1162,13 +2241,15 @@ export class GameScene extends Phaser.Scene {
           vy: Math.sin(angle) * 420,
           damage: bombDamage(level) * stats.damageMult,
           radius: 13,
-          life: fuse,
+          life: fuse + hold,
           pierce: 0,
           hostile: false,
           color: PALETTE.orange,
           texture: 'w_bomb',
-          fuse,
+          fuse: fuse + hold,
           blast: bombBlast(level),
+          hold,
+          weapon: 'bomb',
         });
       }
       bus.emit('sfx', 'shoot');
@@ -1178,6 +2259,7 @@ export class GameScene extends Phaser.Scene {
     if (id === 'ray') {
       const count = rayCount(level) + bonus;
       const targets = this.pickTargets(count, SPAWN.engageRange);
+      this.registerFocusTarget(targets[0]?.id ?? null);
       const width = rayWidth(level);
       const length = SPAWN.beamRange;
       for (let i = 0; i < count; i++) {
@@ -1205,6 +2287,7 @@ export class GameScene extends Phaser.Scene {
 
     if (id === 'cone') {
       const target = this.pickTargets(1, SPAWN.engageRange)[0] ?? null;
+      this.registerFocusTarget(target?.id ?? null);
       const angle = target
         ? Math.atan2(target.y - this.playerY, target.x - this.playerX)
         : this.facing;
@@ -1242,7 +2325,7 @@ export class GameScene extends Phaser.Scene {
         const perp = Math.abs((e.x - this.playerX) * sin - (e.y - this.playerY) * cos);
         if (perp > width * 0.5 + e.radius) continue;
         hitSet.add(e.id);
-        this.damageEnemy(e, damage, true, cos * 90, sin * 90);
+        this.damageEnemy(e, damage, true, cos * 90, sin * 90, true, 'ray');
       }
     }
   }
@@ -1263,17 +2346,24 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(diff) > half) continue;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      this.damageEnemy(e, damage, true, cos * 120, sin * 120);
+      this.damageEnemy(e, damage, true, cos * 120, sin * 120, true, 'cone');
     }
   }
 
   private syncOrbiters(level: number, dt: number): void {
     const count = orbitCount(level);
+    const evolution = this.run.evolutions.orbit;
+    const radiusScale =
+      evolution === 'orbit_wide' ? ORBIT_WIDE.radius : evolution === 'orbit_reflect' ? ORBIT_REFLECT.radius : 1;
+    const knockback = evolution === 'orbit_wide' ? ORBIT_WIDE.knockback : 1;
     while (this.orbiters.length > count) {
       const o = this.orbiters.pop()!;
       if (o.sprite) this.images.release(o.sprite);
     }
-    this.orbitPhase = (this.orbitPhase + orbitSpin(level) * dt) % TAU;
+    this.orbitPhase =
+      (this.orbitPhase +
+        orbitSpin(level) * this.cacheSpeedMult() * this.eventAttackSpeedMult() * dt) %
+      TAU;
     const slots = ringSlotAngles(count, this.orbitPhase);
     while (this.orbiters.length < count) {
       const slot = this.orbiters.length;
@@ -1284,14 +2374,14 @@ export class GameScene extends Phaser.Scene {
       this.orbiters.push({
         index: this.orbiterSeq++ % MAX_ORBIT_SLOTS,
         angle: slots[slot],
-        radius: orbitRadius(level),
+        radius: orbitRadius(level) * radiusScale,
         damage: orbitDamage(level),
         x: this.playerX,
         y: this.playerY,
         sprite,
       });
     }
-    const radius = orbitRadius(level);
+    const radius = orbitRadius(level) * radiusScale;
     const damage = orbitDamage(level) * this.run.stats.damageMult;
     for (let i = 0; i < this.orbiters.length; i++) {
       const o = this.orbiters[i];
@@ -1318,14 +2408,24 @@ export class GameScene extends Phaser.Scene {
         if (this.run.time - last < 0.32) continue;
         e.orbitHit[o.index] = this.run.time;
         const d = Math.hypot(dx, dy) || 1;
-        this.damageEnemy(e, o.damage, false, (dx / d) * 130, (dy / d) * 130);
+        this.damageEnemy(
+          e,
+          o.damage,
+          false,
+          (dx / d) * 130 * knockback,
+          (dy / d) * 130 * knockback,
+          true,
+          'orbit',
+        );
       }
       this.reflectAt(o.x, o.y);
     }
   }
 
   private reflectAt(x: number, y: number): void {
-    const reach = SHIELD.reflectRadius * SHIELD.reflectRadius;
+    const evolved = this.run.evolutions.orbit === 'orbit_reflect';
+    const reflectRadius = evolved ? ORBIT_REFLECT.reflectRadius : SHIELD.reflectRadius;
+    const reach = reflectRadius * reflectRadius;
     for (let i = 0; i < this.projectiles.length; i++) {
       const p = this.projectiles[i];
       if (p.dead || !p.hostile) continue;
@@ -1333,12 +2433,23 @@ export class GameScene extends Phaser.Scene {
       const dy = p.y - y;
       const distance = Math.hypot(dx, dy);
       if (dx * dx + dy * dy > reach) continue;
-      const reflected = reflectBullet(distance, p);
+      const reflected = reflectBullet(
+        distance,
+        p,
+        evolved
+          ? {
+              radius: ORBIT_REFLECT.reflectRadius,
+              damageScale: ORBIT_REFLECT.damageScale,
+              speedScale: ORBIT_REFLECT.speedScale,
+            }
+          : undefined,
+      );
       if (!reflected) continue;
       p.vx = reflected.vx;
       p.vy = reflected.vy;
       p.damage = reflected.damage;
       p.hostile = false;
+      p.weapon = 'orbit';
       p.color = PALETTE.green;
       p.life = Math.max(p.life, SHIELD.reflectMinLife);
       if (p.sprite) p.sprite.setTint(PALETTE.green);
@@ -1372,6 +2483,14 @@ export class GameScene extends Phaser.Scene {
       });
     }
     const damage = cloneDamage(level) * this.run.stats.damageMult;
+    const evolution = this.run.evolutions.clone;
+    const focus = evolution === 'clone_focus';
+    const spread = evolution === 'clone_spread';
+    const focusTarget = focus
+      ? this.pickTargetsAround(this.playerX, this.playerY, SPAWN.engageRange * CLONE_FOCUS.rangeScale)
+      : null;
+    const taken = spread ? new Set<number>() : null;
+    const spreadRange = SPAWN.engageRange * CLONE_SPREAD.rangeScale;
     for (let i = 0; i < this.clones.length; i++) {
       const c = this.clones[i];
       c.damage = damage;
@@ -1387,9 +2506,24 @@ export class GameScene extends Phaser.Scene {
       }
       c.fireAt -= dt;
       if (c.fireAt <= 0) {
-        c.fireAt = cloneCooldown(level) * this.run.stats.cooldownMult * this.zoneMods.cooldown;
-        const target = this.pickTargetsAround(c.x, c.y, SPAWN.engageRange);
+        c.fireAt =
+          cloneCooldown(level) *
+          this.run.stats.cooldownMult *
+          this.zoneMods.cooldown *
+          this.cacheCooldownMult() *
+          this.eventCooldownMult();
+        let target: Enemy | null;
+        if (focus) {
+          target = focusTarget && !focusTarget.dead ? focusTarget : null;
+        } else if (spread) {
+          target = this.pickTargetsAround(c.x, c.y, spreadRange, taken ?? undefined, c.angle);
+          if (!target) target = this.pickTargetsAround(c.x, c.y, spreadRange);
+          if (target && taken) taken.add(target.id);
+        } else {
+          target = this.pickTargetsAround(c.x, c.y, SPAWN.engageRange);
+        }
         if (!target) continue;
+        this.registerFocusTarget(target.id);
         const angle = Math.atan2(target.y - c.y, target.x - c.x);
         const speed = dartSpeed(level);
         this.spawnProjectile({
@@ -1406,6 +2540,7 @@ export class GameScene extends Phaser.Scene {
           texture: 'w_dart',
           fuse: 0,
           blast: 0,
+          weapon: 'clone',
         });
       }
     }
@@ -1422,12 +2557,15 @@ export class GameScene extends Phaser.Scene {
         p.dead = true;
         continue;
       }
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
+      const holding = (p.hold ?? 0) > 0 && p.life <= (p.hold ?? 0);
+      if (!holding) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
       p.trailAt -= dt;
       if (p.sprite) {
         p.sprite.setPosition(p.x, p.y);
-        p.sprite.setRotation(Math.atan2(p.vy, p.vx));
+        p.sprite.setRotation(holding ? this.run.time * 8 : Math.atan2(p.vy, p.vx));
       }
       if (p.trailAt <= 0) {
         p.trailAt = 0.035;
@@ -1456,10 +2594,29 @@ export class GameScene extends Phaser.Scene {
         if (dx * dx + dy * dy > (e.radius + p.radius) ** 2) continue;
         p.hit.add(e.id);
         const len = Math.hypot(p.vx, p.vy) || 1;
-        this.damageEnemy(e, p.damage, p.blast > 0, (p.vx / len) * 110, (p.vy / len) * 110);
+        let damage = p.damage;
+        if (p.weapon === 'dart' && this.run.evolutions.dart === 'dart_stack') {
+          if (this.dartFocusId === e.id && this.run.time - this.dartFocusAt <= DART_FOCUS.window) {
+            this.dartStacks = Math.min(DART_FOCUS.maxStacks, this.dartStacks + 1);
+          } else {
+            this.dartFocusId = e.id;
+            this.dartStacks = 0;
+          }
+          this.dartFocusAt = this.run.time;
+          damage *= 1 + this.dartStacks * DART_FOCUS.perHit;
+        }
+        this.damageEnemy(e, damage, p.blast > 0, (p.vx / len) * 110, (p.vy / len) * 110, true, p.weapon);
         if (p.blast > 0) {
           this.explode(p);
           p.dead = true;
+          break;
+        }
+        if (
+          p.weapon === 'dart' &&
+          this.run.evolutions.dart === 'dart_bounce' &&
+          (p.bounces ?? 0) > 0 &&
+          this.bounceDart(p, e)
+        ) {
           break;
         }
         if (stats.splitChance > 0 && !p.split && this.rng.chance(stats.splitChance)) {
@@ -1476,6 +2633,35 @@ export class GameScene extends Phaser.Scene {
 
       if (p.x < 0 || p.y < 0 || p.x > WORLD.width || p.y > WORLD.height) p.dead = true;
     }
+  }
+
+  private bounceDart(p: Projectile, from: Enemy): boolean {
+    let best: Enemy | null = null;
+    let bestDist = DART_BOUNCE.radius * DART_BOUNCE.radius;
+    const list = this.grid.query(from.x, from.y, DART_BOUNCE.radius, this.scratch2);
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.dead || e.id === from.id || p.hit.has(e.id)) continue;
+      const dx = e.x - from.x;
+      const dy = e.y - from.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    if (!best) return false;
+    const angle = Math.atan2(best.y - from.y, best.x - from.x);
+    const speed = Math.hypot(p.vx, p.vy) || 1;
+    p.bounces = (p.bounces ?? 1) - 1;
+    p.damage *= DART_BOUNCE.scale;
+    p.x = from.x;
+    p.y = from.y;
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed;
+    p.life = Math.max(p.life, 0.8);
+    this.fx.burst(from.x, from.y, PALETTE.cyan, 5, 150, 0.3, 0.5);
+    return true;
   }
 
   private splitProjectile(p: Projectile): void {
@@ -1497,25 +2683,46 @@ export class GameScene extends Phaser.Scene {
         texture: 'w_dart',
         fuse: 0,
         blast: 0,
+        weapon: p.weapon,
+        bounces: 0,
       });
     }
     this.fx.text(p.x, p.y - 12, '|⟩', '#ffffff', 12);
   }
 
-  private explode(p: Projectile): void {
-    const list = this.grid.query(p.x, p.y, p.blast, this.scratch2);
+  private damageBlast(
+    x: number,
+    y: number,
+    radius: number,
+    damage: number,
+    source?: WeaponId,
+  ): number {
+    const list = this.grid.query(x, y, radius, this.scratch2);
     let hits = 0;
     for (let i = 0; i < list.length; i++) {
       const e = list[i];
       if (e.dead) continue;
-      const dx = e.x - p.x;
-      const dy = e.y - p.y;
+      const dx = e.x - x;
+      const dy = e.y - y;
       const dist = Math.hypot(dx, dy);
-      if (dist > p.blast + e.radius) continue;
-      const falloff = Phaser.Math.Clamp(1 - dist / (p.blast + e.radius), 0.45, 1);
-      this.damageEnemy(e, p.damage * falloff, false, (dx / (dist || 1)) * 200, (dy / (dist || 1)) * 200);
+      if (dist > radius + e.radius) continue;
+      const falloff = Phaser.Math.Clamp(1 - dist / (radius + e.radius), 0.45, 1);
+      this.damageEnemy(
+        e,
+        damage * falloff,
+        false,
+        (dx / (dist || 1)) * 200,
+        (dy / (dist || 1)) * 200,
+        true,
+        source,
+      );
       hits++;
     }
+    return hits;
+  }
+
+  private explode(p: Projectile): void {
+    const hits = this.damageBlast(p.x, p.y, p.blast, p.damage, 'bomb');
     this.fx.burst(p.x, p.y, PALETTE.orange, 18, 300, 0.55, 0.9);
     this.beams.push({
       kind: 'cone',
@@ -1530,6 +2737,106 @@ export class GameScene extends Phaser.Scene {
       maxLife: 0.22,
     });
     if (hits > 0) bus.emit('sfx', 'explode');
+    if (this.run.evolutions.bomb === 'bomb_burn') {
+      this.addBurnPatch(p.x, p.y, p.blast, p.damage);
+    } else if (this.run.evolutions.bomb === 'bomb_chain') {
+      this.scheduleChain(p.x, p.y, p.blast, p.damage, BOMB_CHAIN.depth);
+    }
+  }
+
+  private addBurnPatch(x: number, y: number, blast: number, damage: number): void {
+    const now = this.run.time;
+    this.burnPatches.push({
+      x,
+      y,
+      radius: blast * BOMB_BURN.radiusScale,
+      damage: damage * BOMB_BURN.dpsScale * BOMB_BURN.tick,
+      until: now + BOMB_BURN.duration,
+      nextTick: now + BOMB_BURN.tick,
+      fxAt: now,
+    });
+    if (this.burnPatches.length > 12) this.burnPatches.shift();
+  }
+
+  private updateBurn(): void {
+    for (let i = this.burnPatches.length - 1; i >= 0; i--) {
+      const patch = this.burnPatches[i];
+      if (this.run.time >= patch.until) {
+        const last = this.burnPatches.pop()!;
+        if (i < this.burnPatches.length) this.burnPatches[i] = last;
+        continue;
+      }
+      while (this.run.time >= patch.nextTick) {
+        patch.nextTick += BOMB_BURN.tick;
+        const list = this.grid.query(patch.x, patch.y, patch.radius, this.scratch2);
+        for (let k = 0; k < list.length; k++) {
+          const e = list[k];
+          if (e.dead) continue;
+          if (Math.hypot(e.x - patch.x, e.y - patch.y) > patch.radius + e.radius) continue;
+          this.damageEnemy(e, patch.damage, false, 0, 0, true, 'bomb');
+        }
+      }
+      if (this.run.time >= patch.fxAt) {
+        patch.fxAt += 0.18;
+        const angle = this.rng.range(0, TAU);
+        const r = this.rng.range(0, patch.radius * 0.7);
+        this.fx.burst(
+          patch.x + Math.cos(angle) * r,
+          patch.y + Math.sin(angle) * r,
+          PALETTE.orange,
+          2,
+          70,
+          0.35,
+          0.5,
+        );
+      }
+    }
+  }
+
+  private scheduleChain(x: number, y: number, blast: number, damage: number, depth: number): void {
+    if (depth <= 0) return;
+    const list = this.grid.query(x, y, BOMB_CHAIN.searchRadius, this.scratch2);
+    let scheduled = 0;
+    for (let i = 0; i < list.length && scheduled < BOMB_CHAIN.count; i++) {
+      const e = list[i];
+      if (e.dead) continue;
+      this.chainBlasts.push({
+        x: e.x,
+        y: e.y,
+        radius: blast * BOMB_CHAIN.radiusScale,
+        damage: damage * BOMB_CHAIN.damageScale,
+        at: this.run.time + BOMB_CHAIN.delay,
+        depth: depth - 1,
+      });
+      scheduled++;
+    }
+    if (this.chainBlasts.length > 40) this.chainBlasts.splice(0, this.chainBlasts.length - 40);
+  }
+
+  private updateChain(): void {
+    for (let i = this.chainBlasts.length - 1; i >= 0; i--) {
+      const blast = this.chainBlasts[i];
+      if (this.run.time < blast.at) continue;
+      const last = this.chainBlasts.pop()!;
+      if (i < this.chainBlasts.length) this.chainBlasts[i] = last;
+      const hits = this.damageBlast(blast.x, blast.y, blast.radius, blast.damage, 'bomb');
+      this.fx.burst(blast.x, blast.y, PALETTE.yellow, 12, 240, 0.45, 0.75);
+      this.beams.push({
+        kind: 'ring',
+        x: blast.x,
+        y: blast.y,
+        angle: 0,
+        length: blast.radius,
+        width: 4,
+        spread: 0,
+        color: PALETTE.yellow,
+        life: 0.22,
+        maxLife: 0.22,
+        grow: 0.12,
+      });
+      if (hits > 0) bus.emit('sfx', 'explode');
+      this.scheduleChain(blast.x, blast.y, blast.radius, blast.damage, blast.depth);
+    }
   }
 
   private spawnProjectile(config: {
@@ -1546,6 +2853,9 @@ export class GameScene extends Phaser.Scene {
     texture: string;
     fuse: number;
     blast: number;
+    weapon?: WeaponId;
+    bounces?: number;
+    hold?: number;
   }): void {
     const sprite = this.images.acquire();
     sprite.setTexture(config.texture);
@@ -1569,6 +2879,9 @@ export class GameScene extends Phaser.Scene {
       trailAt: 0,
       fuse: config.fuse,
       blast: config.blast,
+      weapon: config.weapon,
+      bounces: config.bounces,
+      hold: config.hold,
       dead: false,
     });
   }
@@ -1706,14 +3019,17 @@ export class GameScene extends Phaser.Scene {
 
   private fetchAllOrbs(): number {
     let gained = 0;
+    let count = 0;
     for (let i = 0; i < this.orbs.length; i++) {
       const o = this.orbs[i];
       if (o.dead) continue;
       o.dead = true;
       gained += o.value;
+      count += 1;
       this.fx.burst(o.x, o.y, o.big ? PALETTE.cyan : PALETTE.green, 2, 110, 0.3, 0.4);
     }
     this.run.xp += gained;
+    this.registerXpPickup(count);
     return gained;
   }
 
@@ -1752,6 +3068,7 @@ export class GameScene extends Phaser.Scene {
       if (restX * restX + restY * restY <= PLAYER.collectRadius * PLAYER.collectRadius) {
         o.dead = true;
         this.run.xp += o.value;
+        this.registerXpPickup(1);
         bus.emit('sfx', 'pickup');
         this.fx.burst(o.x, o.y, PALETTE.green, o.big ? 8 : 3, 110, 0.3, 0.45);
       }
@@ -1792,10 +3109,23 @@ export class GameScene extends Phaser.Scene {
     knockX = 0,
     knockY = 0,
     dropLoot = true,
+    source?: WeaponId,
   ): void {
     if (e.dead) return;
     const crit = this.rng.chance(0.1);
-    const dmg = amount * (crit ? 2 : 1);
+    let dmg = amount * (crit ? 2 : 1);
+    if (source) {
+      const parallel = this.run.passives.parallel ?? 0;
+      if (parallel > 0 && e.lastWeapon && e.lastWeapon !== source) {
+        dmg *= 1 + PARALLEL_PASSIVE.bonus(parallel);
+        hud.parallelHits += 1;
+        if (this.run.time - this.parallelFxAt >= 0.12) {
+          this.parallelFxAt = this.run.time;
+          this.fx.text(e.x, e.y - e.radius - 10, '||', '#ffa500', 12);
+        }
+      }
+      e.lastWeapon = source;
+    }
     e.hp -= dmg;
     e.hitAt = this.run.time;
     if (knockX !== 0 || knockY !== 0) {
@@ -1814,6 +3144,17 @@ export class GameScene extends Phaser.Scene {
   private killEnemy(e: Enemy, dropLoot = true): void {
     if (e.dead) return;
     e.dead = true;
+    if (this.dartFocusId === e.id) {
+      this.dartFocusId = 0;
+      this.dartStacks = 0;
+      this.dartFocusAt = -10;
+    }
+    if (e.challenge && this.activeCommit && !this.activeCommit.done) {
+      this.activeCommit.kills += 1;
+      if (this.activeCommit.kills >= this.activeCommit.need) {
+        this.completeCommit(this.activeCommit);
+      }
+    }
     this.run.kills += 1;
     const def = ENEMY_DEFS[e.type];
     this.fx.burst(e.x, e.y, e.color, e.boss ? 44 : e.elite ? 14 : 8, e.boss ? 380 : 200, 0.6, e.boss ? 1.3 : 0.75);
@@ -1827,6 +3168,10 @@ export class GameScene extends Phaser.Scene {
       hud.boss = null;
       this.cameras.main.shake(500, 0.012);
       bus.emit(EV.banner, { text: 'CORE DUMPED', sub: `${def.name} terminated`, ms: 1600 });
+      this.pendingRewards = rollBossRewards(this.run, this.rng, this.pendingEvolutions);
+      this.choosing = true;
+      this.chooseTimer = 0.8;
+      hud.choices = this.pendingChoiceCount();
     }
   }
 
@@ -1834,7 +3179,8 @@ export class GameScene extends Phaser.Scene {
     const time = this.run.time;
     const bossAlive = this.activeBoss !== null;
     if (time >= this.nextBossAt) {
-      this.nextBossAt += SPAWN.bossEvery;
+      if (this.activeEvent && !this.activeEvent.done) return;
+      this.nextBossAt = time + SPAWN.bossEvery;
       if (!bossAlive) this.spawnBoss();
     }
     if (bossAlive) {
@@ -1851,14 +3197,20 @@ export class GameScene extends Phaser.Scene {
     while (this.spawnTimer >= 1 && budget > 0) {
       this.spawnTimer -= 1;
       budget -= 1;
-      this.spawnEnemy();
+      const spawned = this.spawnEnemy();
+      if (spawned && spawned.type === 'deadlock' && this.rng.chance(0.7)) {
+        const x = Phaser.Math.Clamp(spawned.x + this.rng.range(-100, 100), 40, WORLD.width - 40);
+        const y = Phaser.Math.Clamp(spawned.y + this.rng.range(-100, 100), 40, WORLD.height - 40);
+        this.spawnEnemy('deadlock', x, y, true);
+      }
     }
     if (this.spawnTimer > SPAWN.maxPerFrame) this.spawnTimer = 0;
   }
 
   private spawnEnemy(type?: EnemyTypeId, x?: number, y?: number, forceNormal = false): Enemy | null {
     const time = this.run.time;
-    const id = type ?? pickEnemyType(time, this.rng.next());
+    const id = type ?? this.pickSpawnType();
+    if (this.isTypeCapped(id)) return null;
     const def = ENEMY_DEFS[id];
     const pos = x === undefined || y === undefined ? this.ringPosition() : { x, y };
     if (!pos) return null;
@@ -1900,6 +3252,8 @@ export class GameScene extends Phaser.Scene {
       knockX: this.rng.range(-10, 10),
       knockY: this.rng.range(-10, 10),
     };
+    if (id === 'breakpoint') enemy.castAt = BREAKPOINT.castFirst;
+    if (id === 'deadlock') enemy.castAt = this.rng.range(1.5, 3.5);
     if (elite) {
       sprite.setScale(1.25 * TEX_SCALE);
       sprite.setAlpha(0.95);
@@ -1916,7 +3270,7 @@ export class GameScene extends Phaser.Scene {
     if (!pos) return;
     this.bossGeneration += 1;
     const scale = (1 + (this.bossGeneration - 1) * 0.65) * (1 + time / 600);
-    const hp = def.hp * scale;
+    const hp = def.hp * scale * this.readQaBossHp();
     const sprite = this.images.acquire();
     sprite.setTexture('e_boss');
     sprite.setTint(def.color);
@@ -1959,6 +3313,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private beginBossEntrance(boss: Enemy, x: number, y: number, color: number): void {
+    this.burnPatches = [];
+    this.chainBlasts = [];
+    this.deadlockLinks = [];
+    this.breakpointMarks = [];
+    const event = this.activeEvent;
+    if (event && !event.done && event.engaged) {
+      event.done = true;
+      if (this.activeCommit === event) this.activeCommit = null;
+    }
     const sprite = boss.sprite;
     if (sprite) {
       sprite.setAlpha(0);
@@ -2185,6 +3548,30 @@ export class GameScene extends Phaser.Scene {
         g.strokePoints(points, true);
       }
     }
+    this.drawDeadlockLinks(this.run.time);
+  }
+
+  private drawDeadlockLinks(time: number): void {
+    const g = this.beamGraphics;
+    for (const link of this.deadlockLinks) {
+      const a = this.findEnemy(link.aId);
+      const b = this.findEnemy(link.bId);
+      if (!a || !b) continue;
+      const armed = time >= link.armAt;
+      const alpha = armed ? 0.85 : 0.3 + 0.2 * Math.abs(Math.sin(time * 18));
+      g.lineStyle(armed ? 5 : 2, PALETTE.cyan, alpha);
+      g.beginPath();
+      g.moveTo(a.x, a.y);
+      g.lineTo(b.x, b.y);
+      g.strokePath();
+      if (armed) {
+        g.lineStyle(1.5, PALETTE.white, 0.7);
+        g.beginPath();
+        g.moveTo(a.x, a.y);
+        g.lineTo(b.x, b.y);
+        g.strokePath();
+      }
+    }
   }
 
   private checkLevelUp(): void {
@@ -2195,23 +3582,45 @@ export class GameScene extends Phaser.Scene {
       run.pendingLevels += 1;
       this.xpNeed = xpForLevel(run.level);
     }
-    if (run.pendingLevels > 0 && !this.choosing) {
-      this.openUpgrades();
+    if (this.pendingChoiceCount() > 0 && !this.choosing) {
+      this.choosing = true;
+      hud.choices = this.pendingChoiceCount();
+      if (
+        this.pendingEvolutions.length === 0 &&
+        this.pendingRewards.length === 0 &&
+        this.pendingFree === 0
+      ) {
+        this.openUpgrades('level');
+      }
     }
   }
 
-  private openUpgrades(): void {
+  private pendingChoiceCount(): number {
+    return (
+      this.run.pendingLevels +
+      this.pendingFree +
+      this.pendingEvolutions.length +
+      (this.pendingRewards.length > 0 ? 1 : 0)
+    );
+  }
+
+  private openUpgrades(source: 'level' | 'free'): void {
     const choices = pickChoices(this.run, this.rng, 3);
     if (choices.length === 0) {
-      this.run.pendingLevels = 0;
-      this.choosing = false;
+      if (source === 'level') this.run.pendingLevels = Math.max(0, this.run.pendingLevels - 1);
+      else this.pendingFree = Math.max(0, this.pendingFree - 1);
+      this.choosing = this.pendingChoiceCount() > 0;
+      hud.choices = this.pendingChoiceCount();
       return;
     }
     this.pendingChoices = choices;
+    this.panelSource = source;
     this.choosing = true;
     this.panelOpen = true;
     this.chooseTimer = 0.4;
-    hud.choices = this.run.pendingLevels;
+    hud.panel = source;
+    hud.panelCards = choices.length;
+    hud.choices = this.pendingChoiceCount();
     this.cameras.main.flash(240, 0, 255, 65, false);
     bus.emit('sfx', 'levelup');
     this.fx.burst(this.playerX, this.playerY, PALETTE.green, 26, 260, 0.8, 0.85);
@@ -2219,20 +3628,146 @@ export class GameScene extends Phaser.Scene {
       cards: choices.map((id) => toCard(this.run, id)),
       level: this.run.level,
       pending: this.run.pendingLevels,
+      title: source === 'free' ? '▸ compile_bonus.rs — 编译节点奖励' : undefined,
+      footer: source === 'free' ? '来自地图事件 · 不占用升级次数 · [1] [2] [3] 选择' : undefined,
     });
   }
 
+  private openEvolution(): void {
+    const weapon = this.pendingEvolutions[0];
+    const options = weapon ? evolutionsFor(weapon) : [];
+    if (!weapon || options.length === 0) {
+      this.pendingEvolutions.shift();
+      this.choosing = this.pendingChoiceCount() > 0;
+      hud.choices = this.pendingChoiceCount();
+      return;
+    }
+    this.pendingEvolutionCards = options;
+    this.panelSource = 'evolution';
+    this.choosing = true;
+    this.panelOpen = true;
+    this.chooseTimer = 0.35;
+    hud.panel = 'evolution';
+    hud.panelCards = options.length;
+    hud.choices = this.pendingChoiceCount();
+    this.cameras.main.flash(200, ...this.flashTint(WEAPON_DEFS[weapon].color), false);
+    bus.emit('sfx', 'levelup');
+    bus.emit(EV.levelUp, {
+      cards: options.map((id) => toEvolutionCard(id)),
+      level: this.run.level,
+      pending: 0,
+      title: `▸ evolution_available.rs — ${WEAPON_DEFS[weapon].name} · 选择分支`,
+      footer: '两个分支本局内不可更改 · 进化不会重置武器等级 · [1] [2] 选择',
+    });
+  }
+
+  private openBossReward(): void {
+    if (this.pendingRewards.length === 0) {
+      this.choosing = this.pendingChoiceCount() > 0;
+      hud.choices = this.pendingChoiceCount();
+      return;
+    }
+    this.panelSource = 'reward';
+    this.choosing = true;
+    this.panelOpen = true;
+    this.chooseTimer = 0.5;
+    hud.panel = 'reward';
+    hud.panelCards = this.pendingRewards.length;
+    hud.choices = this.pendingChoiceCount();
+    this.cameras.main.flash(220, 255, 0, 64, false);
+    bus.emit('sfx', 'levelup');
+    bus.emit(EV.levelUp, {
+      cards: this.pendingRewards.map(toBossRewardCard),
+      level: this.run.level,
+      pending: 0,
+      title: '▸ core_dump_reward.rs — BOSS 三选一',
+      footer: '奖励立即生效 · 按当前构筑挑选 · [1] [2] [3] 选择',
+    });
+  }
+
+  private queueEvolution(weapon: WeaponId, levelRequired: boolean): void {
+    if (!isEvolutionWeapon(weapon)) return;
+    if ((this.run.weapons[weapon] ?? 0) <= 0) return;
+    if (this.run.evolutions[weapon]) return;
+    if (levelRequired && !canEvolve(this.run, weapon)) return;
+    if (this.pendingEvolutions.includes(weapon)) return;
+    this.pendingEvolutions.push(weapon);
+    this.choosing = true;
+    hud.choices = this.pendingChoiceCount();
+  }
+
+  private maybeQueueEvolution(id: UpgradeId): void {
+    if (!isEvolutionWeapon(id)) return;
+    this.queueEvolution(id, true);
+  }
+
   private applyChoice(index: number): void {
-    if (!this.panelOpen || index < 0 || index >= this.pendingChoices.length) return;
+    if (!this.panelOpen) return;
+    if (this.panelSource === 'evolution') {
+      this.applyEvolutionChoice(index);
+      return;
+    }
+    if (this.panelSource === 'reward') {
+      this.applyRewardChoice(index);
+      return;
+    }
+    if (index < 0 || index >= this.pendingChoices.length) return;
     const id = this.pendingChoices[index];
     applyUpgrade(this.run, id);
-    this.run.pendingLevels = Math.max(0, this.run.pendingLevels - 1);
-    hud.choices = this.run.pendingLevels;
-    this.pendingChoices = [];
+    if (this.panelSource === 'level') this.run.pendingLevels = Math.max(0, this.run.pendingLevels - 1);
+    else this.pendingFree = Math.max(0, this.pendingFree - 1);
+    this.maybeQueueEvolution(id);
+    if (this.qaEvolutions.length > 0) {
+      const queued = this.qaEvolutions;
+      this.qaEvolutions = [];
+      for (const weapon of queued) this.queueEvolution(weapon, true);
+    }
     bus.emit('sfx', 'choose');
     this.fx.text(this.playerX, this.playerY - 44, `+${id.toUpperCase()}`, '#00ff41', 15);
+    this.closePanel();
+  }
+
+  private applyEvolutionChoice(index: number): void {
+    if (index < 0 || index >= this.pendingEvolutionCards.length) return;
+    const weapon = this.pendingEvolutions.shift();
+    const id = this.pendingEvolutionCards[index];
+    if (!weapon) {
+      this.closePanel();
+      return;
+    }
+    applyEvolution(this.run, id);
+    const def = EVOLUTION_DEFS[id];
+    bus.emit('sfx', 'choose');
+    this.fx.text(this.playerX, this.playerY - 44, `EVOLVE ${def.branch}`, '#ffe066', 16);
+    bus.emit(EV.banner, {
+      text: `${WEAPON_DEFS[weapon].name} · ${def.name}`,
+      sub: def.tagline,
+      ms: 1400,
+    });
+    this.closePanel();
+  }
+
+  private applyRewardChoice(index: number): void {
+    if (index < 0 || index >= this.pendingRewards.length) return;
+    const reward = this.pendingRewards[index];
+    const outcome = applyBossReward(this.run, reward);
+    this.pendingRewards = [];
+    if (outcome.evolve) this.queueEvolution(outcome.evolve, false);
+    if (outcome.upgraded) this.maybeQueueEvolution(outcome.upgraded);
+    bus.emit('sfx', 'choose');
+    this.fx.text(this.playerX, this.playerY - 44, reward.name, '#ffe066', 15);
+    bus.emit(EV.banner, { text: 'BOSS REWARD', sub: reward.name, ms: 1200 });
+    this.closePanel();
+  }
+
+  private closePanel(): void {
+    this.pendingChoices = [];
+    this.pendingEvolutionCards = [];
+    hud.panel = null;
+    hud.panelCards = 0;
+    hud.choices = this.pendingChoiceCount();
     this.panelOpen = false;
-    this.choosing = this.run.pendingLevels > 0;
+    this.choosing = this.pendingChoiceCount() > 0;
     this.chooseTimer = 0.3;
     this.refreshHudLists();
   }
@@ -2241,7 +3776,14 @@ export class GameScene extends Phaser.Scene {
     hud.weapons = WEAPON_IDS.filter((id) => (this.run.weapons[id] ?? 0) > 0).map((id) => {
       const def = WEAPON_DEFS[id];
       const level = this.run.weapons[id] ?? 0;
-      return { symbol: def.symbol, level, color: def.color, max: level >= def.maxLevel };
+      const evolution = this.run.evolutions[id];
+      return {
+        symbol: def.symbol,
+        level,
+        color: def.color,
+        max: level >= def.maxLevel,
+        evolution: evolution ? EVOLUTION_DEFS[evolution].branch : undefined,
+      };
     });
     hud.passives = Object.entries(this.run.passives).map(([id, level]) => {
       const def = PASSIVE_DEFS[id as keyof typeof PASSIVE_DEFS];

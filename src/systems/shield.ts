@@ -13,12 +13,23 @@ export interface Reflection {
   damage: number;
 }
 
-export function reflectBullet(distance: number, bullet: Bullet): Reflection | null {
+export interface ReflectConfig {
+  radius?: number;
+  damageScale?: number;
+  speedScale?: number;
+}
+
+export function reflectBullet(
+  distance: number,
+  bullet: Bullet,
+  config: ReflectConfig = {},
+): Reflection | null {
   if (!bullet.hostile) return null;
-  if (distance > SHIELD.reflectRadius) return null;
+  if (distance > (config.radius ?? SHIELD.reflectRadius)) return null;
+  const speedScale = config.speedScale ?? SHIELD.reflectSpeedScale;
   return {
-    vx: -bullet.vx * SHIELD.reflectSpeedScale,
-    vy: -bullet.vy * SHIELD.reflectSpeedScale,
-    damage: bullet.damage * SHIELD.reflectDamageScale,
+    vx: -bullet.vx * speedScale,
+    vy: -bullet.vy * speedScale,
+    damage: bullet.damage * (config.damageScale ?? SHIELD.reflectDamageScale),
   };
 }

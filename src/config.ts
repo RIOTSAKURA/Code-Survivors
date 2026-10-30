@@ -40,11 +40,11 @@ export const PLAYER = {
 export const SPAWN = {
   maxEnemies: 420,
   rateBase: 1.45,
-  rateGrowth: 0.05,
+  rateGrowth: 0.04,
   rateMax: 26,
   rateRampFloor: 0.65,
-  rateRampCeil: 0.85,
-  rateRampTime: 200,
+  rateRampCeil: 0.8,
+  rateRampTime: 260,
   maxPerFrame: 12,
   ringPadding: 50,
   engageRange: 300,
@@ -119,6 +119,34 @@ export const TERRAIN = {
   towerMargin: 60,
   zoneShuffleEvery: 45,
   zonePlayerGap: 170,
+  event: {
+    chargeTime: 9,
+    spawnEvery: 1.7,
+    spawnCount: 2,
+    compileAttackSpeed: 0.9,
+    compileDamageTaken: 1.1,
+  },
+  eventSystem: {
+    firstDelay: 50,
+    cooldown: 30,
+    acceptWindow: 20,
+    bossBuffer: 40,
+  },
+  packet: {
+    fightTime: 18,
+    guards: 3,
+    guardDistance: 150,
+    guardHpScale: 1.4,
+    guardDamageScale: 1.2,
+  },
+  commit: {
+    duration: 15,
+    need: 20,
+    spawnEvery: 0.9,
+    spawnCount: 2,
+    hpScale: 1.5,
+    damageScale: 1.25,
+  },
   charge: { sustain: 14, recover: 9 },
   effects: {
     includeCooldown: 0.2,
@@ -155,6 +183,37 @@ export const THROWER = {
   speed: 165,
   damage: 9,
   range: 620,
+};
+
+export const DEADLOCK = {
+  pairRange: 420,
+  arm: 0.8,
+  duration: 2.4,
+  cooldown: 3.5,
+  damage: 14,
+  thickness: 16,
+  hitEvery: 0.5,
+};
+
+export const BREAKPOINT = {
+  radius: 100,
+  arm: 2,
+  damage: 10,
+  castEvery: 5.5,
+  castFirst: 3.2,
+  range: 620,
+  holdDistance: 280,
+  retreatDistance: 210,
+  maxAlive: 3,
+};
+
+export const DAEMON = {
+  radius: 220,
+  speed: 1.25,
+  damage: 1.3,
+  linger: 2,
+  maxAlive: 2,
+  maxTargets: 6,
 };
 
 export const ENTRANCE = {
