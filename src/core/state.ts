@@ -70,6 +70,7 @@ export interface EventHud {
   active: boolean;
   interactable: boolean;
   detail: string;
+  fragments: { x: number; y: number; got: boolean; guards: number[] }[];
 }
 
 export interface BossHud {
@@ -112,6 +113,7 @@ export interface HudState {
   parallelHits: number;
   rareModules: number;
   hazards: HazardHud;
+  player: { x: number; y: number };
   panel: PanelKind | null;
   panelCards: number;
   zones: number;
@@ -147,6 +149,7 @@ export const hud: HudState = {
   parallelHits: 0,
   rareModules: 0,
   hazards: { links: 0, marks: 0, breakpoints: 0, daemons: 0, empowered: 0 },
+  player: { x: 0, y: 0 },
   panel: null,
   panelCards: 0,
   zones: 0,

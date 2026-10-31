@@ -39,7 +39,7 @@ export const orbitDamage = (l: number): number => 7 + 3 * (l - 1);
 export const orbitRadius = (l: number): number => 76 + 7 * (l - 1);
 
 export const bombCount = (l: number): number => 1 + Math.floor(l / 3);
-export const bombDamage = (l: number): number => 24 + 9 * (l - 1);
+export const bombDamage = (l: number): number => 20 + 6.5 * (l - 1);
 export const bombBlast = (l: number): number => 92 + 10 * (l - 1);
 
 export const rayCount = (l: number): number => 1 + Math.floor((l - 1) / 3);

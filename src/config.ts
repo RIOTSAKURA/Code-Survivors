@@ -40,11 +40,14 @@ export const PLAYER = {
 export const SPAWN = {
   maxEnemies: 420,
   rateBase: 1.45,
-  rateGrowth: 0.04,
+  rateGrowth: 0.05,
   rateMax: 26,
+  rateLateStart: 300,
+  rateLateGrowth: 3.2,
+  rateLateTau: 300,
   rateRampFloor: 0.65,
   rateRampCeil: 0.8,
-  rateRampTime: 260,
+  rateRampTime: 180,
   maxPerFrame: 12,
   ringPadding: 50,
   engageRange: 300,
@@ -54,6 +57,11 @@ export const SPAWN = {
   bossEvery: 115,
   hpScalePerMin: 0.26,
   hpScalePerLevel: 0.045,
+  hpLateStart: 2.5,
+  hpLateQuad: 0.12,
+  damageScalePerMin: 0.05,
+  damageLateStart: 3,
+  damageLateQuad: 0.02,
   speedScalePerMin: 0.035,
 };
 
@@ -133,11 +141,17 @@ export const TERRAIN = {
     bossBuffer: 40,
   },
   packet: {
-    fightTime: 18,
-    guards: 3,
-    guardDistance: 150,
-    guardHpScale: 1.4,
-    guardDamageScale: 1.2,
+    collectTime: 20,
+    fragments: 3,
+    fragmentMin: 300,
+    fragmentMax: 480,
+    fragmentGap: 260,
+    grabRadius: 60,
+    guardRadius: 170,
+    guards: 2,
+    guardGap: 80,
+    guardHpScale: 1.5,
+    guardDamageScale: 1.25,
   },
   commit: {
     duration: 15,
@@ -205,6 +219,9 @@ export const BREAKPOINT = {
   holdDistance: 280,
   retreatDistance: 210,
   maxAlive: 3,
+  capStart: 240,
+  capEvery: 180,
+  capMax: 6,
 };
 
 export const DAEMON = {
@@ -213,6 +230,9 @@ export const DAEMON = {
   damage: 1.3,
   linger: 2,
   maxAlive: 2,
+  capStart: 300,
+  capEvery: 240,
+  capMax: 4,
   maxTargets: 6,
 };
 

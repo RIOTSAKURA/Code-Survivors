@@ -15,7 +15,7 @@ import {
 import { EVOLUTION_DEFS, EVOLUTION_LEVEL, evolutionsFor } from '../data/evolutions';
 import { WEAPON_DEFS, WEAPON_IDS, cloneCooldown, orbitSpin } from '../data/weapons';
 
-type PageId = 'weapon' | 'enemy' | 'item' | 'zone' | 'passive';
+type PageId = 'weapon' | 'enemy' | 'item' | 'zone' | 'event' | 'passive';
 
 interface Page {
   id: PageId;
@@ -46,7 +46,8 @@ const PAGES: Page[] = [
   { id: 'enemy', tab: '[2] 敌人', title: 'bugs/', note: '基础数值 · 随时间与玩家等级成长' },
   { id: 'item', tab: '[3] 掉落', title: 'drops/', note: '小概率掉落 · 走到拾取圈内即拾取' },
   { id: 'zone', tab: '[4] 地形', title: 'terrain/', note: '随机生成 · 不阻挡移动 · 每 45s 重新编译一次' },
-  { id: 'passive', tab: '[5] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
+  { id: 'event', tab: '[5] 事件', title: 'events/', note: '按 E 接受 · 限时完成换取进化或稀有模块' },
+  { id: 'passive', tab: '[6] 被动', title: 'modules/', note: '被动上限 5 级 · 与武器搭配成型' },
 ];
 
 const WIDE_ROW = 84;
@@ -203,6 +204,7 @@ export class CodexScene extends Phaser.Scene {
     keyboard.on('keydown-THREE', () => this.show(2));
     keyboard.on('keydown-FOUR', () => this.show(3));
     keyboard.on('keydown-FIVE', () => this.show(4));
+    keyboard.on('keydown-SIX', () => this.show(5));
     this.input.on(
       'wheel',
       (_pointer: Phaser.Input.Pointer, _over: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
@@ -248,7 +250,7 @@ export class CodexScene extends Phaser.Scene {
     this.footer.setText(
       narrow
         ? '←→ 切页 · ↑↓ / 滚轮 滚动 · C 返回'
-        : '← → / 1 2 3 4 5 切换页   ·   ↑ ↓ / 滚轮 滚动   ·   C / ESC / 点击 返回菜单',
+        : '← → / 1 2 3 4 5 6 切换页   ·   ↑ ↓ / 滚轮 滚动   ·   C / ESC / 点击 返回菜单',
     );
 
     this.listMaskShape.clear();
@@ -406,7 +408,10 @@ export class CodexScene extends Phaser.Scene {
           stats,
         };
       });
-      for (const kind of ['compile', 'packet', 'commit'] as const) {
+      return entries;
+    }
+    if (id === 'event') {
+      return (['compile', 'packet', 'commit'] as const).map((kind) => {
         const def = TERRAIN_EVENTS[kind];
         const stats: string[] = [];
         if (kind === 'compile') {
@@ -417,24 +422,24 @@ export class CodexScene extends Phaser.Scene {
           stats.push('奖励：免费模块选择');
           stats.push(`首个目标 ${TERRAIN.eventSystem.firstDelay}s 后出现`);
         } else if (kind === 'packet') {
-          stats.push(`按 E 接受 · ${TERRAIN.packet.fightTime}s 内击败守卫`);
-          stats.push(`击败 ${TERRAIN.packet.guards} 名守卫`);
+          stats.push(`按 E 接受 · ${TERRAIN.packet.collectTime}s 内收齐碎片`);
+          stats.push(`拾取 ${TERRAIN.packet.fragments} 块散落碎片`);
+          stats.push(`靠近碎片刷出 ${TERRAIN.packet.guards} 名守卫 · 清掉后才能拾取`);
           stats.push('奖励：武器进化');
         } else {
           stats.push(`按 E 接受 · ${TERRAIN.commit.duration}s 内`);
           stats.push(`击杀 ${TERRAIN.commit.need} 个强化敌人`);
           stats.push('奖励：稀有模块');
         }
-        entries.push({
+        return {
           symbol: def.label,
           color: def.color,
           name: def.name,
           tagline: 'event',
           desc: def.desc,
           stats,
-        });
-      }
-      return entries;
+        };
+      });
     }
     if (id === 'item') {
       return ITEM_IDS.map((itemId) => {

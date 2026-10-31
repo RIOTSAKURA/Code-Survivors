@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS, ORB, PLAYER, SPAWN, THROWER } from '../src/config';
+import { BOSS, BREAKPOINT, DAEMON, ORB, PLAYER, SPAWN, THROWER } from '../src/config';
 import {
   ENEMY_DEFS,
   SPAWN_POOL,
+  breakpointCap,
+  daemonCap,
+  enemyDamageScale,
   enemyHpScale,
   bossSummonPool,
   enemySpeedScale,
@@ -12,12 +15,14 @@ import {
   spawnRate,
 } from '../src/data/enemies';
 import { PASSIVE_DEFS, PASSIVE_IDS } from '../src/data/passives';
+import { BOMB_CHAIN } from '../src/data/evolutions';
 import { createRun } from '../src/core/state';
 import { applyUpgrade } from '../src/systems/progression';
 import {
   WEAPON_DEFS,
   WEAPON_IDS,
   bombCount,
+  bombDamage,
   coneAngle,
   dartCount,
   dartDamage,
@@ -151,9 +156,98 @@ describe('enemy scaling', () => {
 
   it('ramps pressure without exploding', () => {
     expect(spawnRate(0)).toBeLessThan(3);
-    expect(spawnRate(1800)).toBe(SPAWN.rateMax);
+    expect(spawnRate(1800)).toBeGreaterThan(SPAWN.rateMax);
     expect(spawnRate(60)).toBeLessThan(spawnRate(300));
     expect(SPAWN.maxEnemies).toBeGreaterThan(100);
+  });
+
+  it('keeps the endless spawn flow climbing, just ever more slowly', () => {
+    let previous = 0;
+    for (let t = 0; t <= 3600; t += 30) {
+      const rate = spawnRate(t);
+      expect(rate).toBeGreaterThanOrEqual(previous);
+      previous = rate;
+    }
+    expect(spawnRate(3600)).toBeGreaterThan(spawnRate(1800));
+    expect(spawnRate(3600)).toBeLessThan(SPAWN.rateMax * 1.5);
+    expect(spawnRate(SPAWN.rateLateStart)).toBeGreaterThan(SPAWN.rateMax * 0.5);
+  });
+
+  it('keeps hp and damage climbing smoothly into the endless stretch', () => {
+    const hp = (t: number) => enemyHpScale(t, 1);
+    const damage = (t: number) => enemyDamageScale(t);
+    for (const curve of [hp, damage]) {
+      let previousDelta = curve(120) - curve(60);
+      for (let t = 180; t <= 2400; t += 60) {
+        const delta = curve(t) - curve(t - 60);
+        expect(delta).toBeGreaterThan(0);
+        expect(delta).toBeGreaterThanOrEqual(previousDelta - 1e-9);
+        previousDelta = delta;
+      }
+    }
+    expect(hp(600)).toBeGreaterThan(hp(300) * 1.5);
+    expect(hp(1200)).toBeGreaterThan(hp(600) * 2.4);
+    expect(damage(0)).toBe(1);
+    expect(damage(1200)).toBeGreaterThan(3);
+    expect(damage(2400)).toBeGreaterThan(damage(1200) * 1.5);
+  });
+
+  it('scales enemy damage off the run clock, not just hp', () => {
+    expect(enemyDamageScale(0)).toBeCloseTo(1, 6);
+    expect(enemyDamageScale(SPAWN.damageLateStart * 60)).toBeCloseTo(
+      1 + SPAWN.damageLateStart * SPAWN.damageScalePerMin,
+      6,
+    );
+    expect(enemyDamageScale(SPAWN.damageLateStart * 60 + 60)).toBeGreaterThan(
+      enemyDamageScale(SPAWN.damageLateStart * 60) + SPAWN.damageScalePerMin,
+    );
+    expect(SPAWN.damageLateQuad).toBeGreaterThan(0);
+    expect(SPAWN.hpLateQuad).toBeGreaterThan(0);
+    expect(SPAWN.hpLateStart).toBeGreaterThan(0);
+  });
+
+  it('grows the hazard population by one step at a time, spaced minutes apart', () => {
+    for (const [cap, spacing] of [
+      [breakpointCap, BREAKPOINT.capEvery],
+      [daemonCap, DAEMON.capEvery],
+    ] as const) {
+      let previous = cap(0);
+      let lastStepAt = 0;
+      for (let t = 0; t <= 2400; t += 5) {
+        const value = cap(t);
+        expect(value).toBeGreaterThanOrEqual(previous);
+        if (value > previous) {
+          expect(value - previous).toBe(1);
+          expect(t - lastStepAt).toBeGreaterThanOrEqual(spacing);
+          lastStepAt = t;
+        }
+        previous = value;
+      }
+      expect(cap(2400)).toBeGreaterThan(cap(0));
+    }
+    expect(breakpointCap(0)).toBe(BREAKPOINT.maxAlive);
+    expect(breakpointCap(2400)).toBe(BREAKPOINT.capMax);
+    expect(daemonCap(2400)).toBe(DAEMON.capMax);
+  });
+
+  it('keeps the late hazards a small slice of the swarm', () => {
+    for (const t of [200, 400, 800, 1600]) {
+      const total = SPAWN_POOL.reduce((sum, id) => sum + ENEMY_DEFS[id].weight(t), 0);
+      for (const id of ['breakpoint', 'daemon'] as const) {
+        const share = ENEMY_DEFS[id].weight(t) / total;
+        expect(share).toBeGreaterThan(0.03);
+        expect(share).toBeLessThan(0.2);
+      }
+    }
+  });
+
+  it('keeps the chain bomb from multiplying the whole screen', () => {
+    const chainTotal = 1 + BOMB_CHAIN.count * BOMB_CHAIN.damageScale +
+      BOMB_CHAIN.count ** 2 * BOMB_CHAIN.damageScale ** 2;
+    expect(chainTotal).toBeLessThan(3.6);
+    expect(chainTotal).toBeGreaterThan(2.5);
+    expect(bombDamage(1)).toBeLessThan(24);
+    expect(bombDamage(8)).toBeLessThan(80);
   });
 
   it('eases the opening hardest and settles at a gentler long run ceiling', () => {

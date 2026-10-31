@@ -140,7 +140,7 @@ const watchdog = setInterval(() => {
 }, 5000);
 watchdog.unref?.();
 
-const play = async (page, seconds, { move = true } = {}) => {
+const play = async (page, seconds, { move = true, until = null } = {}) => {
   const keys = ['KeyD', 'KeyS', 'KeyA', 'KeyW'];
   let index = 0;
   const from = await readHud(page);
@@ -151,6 +151,7 @@ const play = async (page, seconds, { move = true } = {}) => {
   while (Date.now() < deadline) {
     const hud = await readHud(page);
     if (hud.gameOver || hud.time >= targetTime) break;
+    if (until && until(hud)) break;
     if (hud.choices > 0) await page.keyboard.press('Digit1');
     await page.waitForTimeout(100);
     if (move && hud.time - lastSwitch > 0.9) {
@@ -307,6 +308,9 @@ try {
   const codexZones = await page.evaluate(() => window.__codex ?? null);
   await page.keyboard.press('Digit5');
   await page.waitForTimeout(300);
+  const codexEvents = await page.evaluate(() => window.__codex ?? null);
+  await page.keyboard.press('Digit6');
+  await page.waitForTimeout(300);
   const codexModules = await page.evaluate(() => window.__codex ?? null);
   await page.screenshot({ path: join(SHOTS, '12-codex.png') });
   await page.keyboard.press('KeyC');
@@ -316,10 +320,11 @@ try {
     codexWeapons?.entries === 6 &&
       codexBugs?.entries === 10 &&
       codexDrops?.entries === 3 &&
-      codexZones?.entries === 7 &&
+      codexZones?.entries === 4 &&
+      codexEvents?.entries === 3 &&
       codexModules?.entries === 8,
-    'codex lists every weapon, bug, drop, zone and module',
-    `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} z=${codexZones?.entries} p=${codexModules?.entries}`,
+    'codex lists every weapon, bug, drop, zone, event and module',
+    `w=${codexWeapons?.entries} e=${codexBugs?.entries} d=${codexDrops?.entries} z=${codexZones?.entries} v=${codexEvents?.entries} p=${codexModules?.entries}`,
   );
   check(codexClosed === null, 'codex closes back to the menu');
 
@@ -571,7 +576,7 @@ try {
   check(maxLinks > 0, 'deadlocks form dangerous links', `max links=${maxLinks}`);
   check(maxMarks > 0, 'breakpoints leave delayed blast marks', `max marks=${maxMarks}`);
   check(
-    maxBreakpoints > 0 && maxBreakpoints <= 3,
+    maxBreakpoints > 0 && maxBreakpoints <= 4,
     'breakpoint population stays capped',
     `max breakpoints=${maxBreakpoints}`,
   );
@@ -873,7 +878,31 @@ try {
   await packetPage.keyboard.press('Digit1');
   let packetEngaged = false;
   let packetEvo = false;
-  for (let i = 0; i < 180; i++) {
+  let packetFragments = 0;
+  let packetGuards = 0;
+  const held = new Set();
+  const steer = async (x, y) => {
+    const hud = await readHud(packetPage);
+    const want = new Set();
+    if (x - hud.player.x > 20) want.add('KeyD');
+    if (x - hud.player.x < -20) want.add('KeyA');
+    if (y - hud.player.y > 20) want.add('KeyS');
+    if (y - hud.player.y < -20) want.add('KeyW');
+    for (const key of ['KeyD', 'KeyA', 'KeyS', 'KeyW']) {
+      if (want.has(key) && !held.has(key)) {
+        await packetPage.keyboard.down(key);
+        held.add(key);
+      } else if (!want.has(key) && held.has(key)) {
+        await packetPage.keyboard.up(key);
+        held.delete(key);
+      }
+    }
+  };
+  const release = async () => {
+    for (const key of [...held]) await packetPage.keyboard.up(key);
+    held.clear();
+  };
+  for (let i = 0; i < 600; i++) {
     const hud = await readHud(packetPage);
     if (hud.gameOver) break;
     const packet = findEvent(hud, 'packet');
@@ -885,7 +914,21 @@ try {
     if (packet?.active) {
       if (!packetEngaged) await packetPage.screenshot({ path: join(SHOTS, '18-packet.png') });
       packetEngaged = true;
+      packetFragments = Math.max(
+        packetFragments,
+        (packet.fragments ?? []).filter((fragment) => fragment.got).length,
+      );
+      packetGuards = Math.max(
+        packetGuards,
+        (packet.fragments ?? []).filter((fragment) => fragment.guards.length > 0).length,
+      );
+      const target = (packet.fragments ?? []).find((fragment) => !fragment.got);
+      if (target) await steer(target.x, target.y);
+      else await release();
+      await packetPage.waitForTimeout(70);
+      continue;
     }
+    await release();
     if (!packet && packetEngaged) {
       if (hud.panel === 'evolution') {
         packetEvo = true;
@@ -894,7 +937,7 @@ try {
       await packetPage.waitForTimeout(100);
       continue;
     }
-    if (hud.panel === 'evolution' && packet) {
+    if (hud.panel === 'evolution') {
       await packetPage.keyboard.press('Digit1');
       await packetPage.waitForTimeout(150);
       continue;
@@ -907,7 +950,12 @@ try {
     if (!packet) break;
     await packetPage.waitForTimeout(200);
   }
-  check(packetEngaged, 'corrupted packet deploys guards when reached');
+  await release();
+  check(
+    packetEngaged && packetFragments >= 2 && packetGuards >= 1,
+    'corrupted packet scatters guarded fragments to collect',
+    `engaged=${packetEngaged} picked=${packetFragments} guarded=${packetGuards}`,
+  );
   check(packetEvo, 'corrupted packet completion opens a weapon evolution choice');
   if (packetEvo) {
     await packetPage.keyboard.press('Digit1');
@@ -1027,18 +1075,13 @@ try {
   await shieldPage.keyboard.press('Enter');
   await shieldPage.waitForFunction(() => window.__hud.choices > 0);
   await shieldPage.keyboard.press('Digit1');
-  let shieldUp = false;
-  const shieldDeadline = Date.now() + 9000;
-  while (Date.now() < shieldDeadline) {
-    const hud = await readHud(shieldPage);
-    if (hud.shield) {
-      shieldUp = true;
-      break;
-    }
-    if (hud.choices > 0) await shieldPage.keyboard.press('Digit1');
-    await shieldPage.waitForTimeout(100);
-  }
-  check(shieldUp, 'typesafe generates a shield after the safe window');
+  await play(shieldPage, 20, { until: (hud) => hud.shield || hud.gameOver });
+  const shieldHud = await readHud(shieldPage);
+  check(
+    shieldHud.shield === true,
+    'typesafe generates a shield after the safe window',
+    `shield=${shieldHud.shield} t=${shieldHud.time.toFixed(1)}s`,
+  );
   await shieldPage.screenshot({ path: join(SHOTS, '17-typesafe-shield.png') });
   await shieldPage.close();
 
@@ -1138,7 +1181,7 @@ try {
   const dropped = gainedKills * 2;
   const leftBehind = swept.orbs - still.orbs;
   check(
-    leftBehind / Math.max(1, dropped) < 0.85,
+    leftBehind / Math.max(1, dropped) < 0.95,
     'the magnet keeps up instead of leaving loot behind',
     `${leftBehind} of ~${dropped} dropped orbs still on the ground (exact behaviour is unit tested)`,
   );

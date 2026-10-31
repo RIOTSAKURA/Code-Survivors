@@ -12,8 +12,8 @@ export const BOMB_BURN = { duration: 3.2, tick: 0.5, dpsScale: 0.3, radiusScale:
 export const BOMB_CHAIN = {
   fuseBonus: 0.35,
   delay: 0.22,
-  radiusScale: 0.8,
-  damageScale: 0.7,
+  radiusScale: 0.75,
+  damageScale: 0.55,
   searchRadius: 260,
   count: 2,
   depth: 2,

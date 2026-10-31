@@ -87,6 +87,13 @@ function pickDecor(rng: Rng): DecorKind {
 
 export type EventKind = 'compile' | 'packet' | 'commit';
 
+export interface PacketFragment {
+  x: number;
+  y: number;
+  got: boolean;
+  guards: number[];
+}
+
 export interface TerrainEvent {
   id: number;
   kind: EventKind;
@@ -94,7 +101,7 @@ export interface TerrainEvent {
   done: boolean;
   deadline: number;
   engaged: boolean;
-  guardIds: number[];
+  fragments: PacketFragment[];
   kills: number;
   need: number;
 }
@@ -113,7 +120,7 @@ export const TERRAIN_EVENTS: Record<
     label: '#packet',
     name: '损坏的数据包',
     color: PALETTE.cyan,
-    desc: '出现后按 E 接受数据包任务，击败刷出的守卫可获得一次武器进化机会；超时则数据包丢失',
+    desc: '出现后按 E 接受数据包任务，跑向散落在附近的 3 块碎片；靠近碎片会刷出守卫，清掉守卫才能拾取，全部收齐可获得一次武器进化机会；超时则数据包丢失',
   },
   commit: {
     label: '#commit',

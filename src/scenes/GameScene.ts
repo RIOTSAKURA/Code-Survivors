@@ -44,6 +44,9 @@ import {
   bossSummonPool,
   ENEMY_DEFS,
   SPAWN_POOL,
+  breakpointCap,
+  daemonCap,
+  enemyDamageScale,
   enemyHpScale,
   enemySpeedScale,
   pickEnemyType,
@@ -108,7 +111,7 @@ import {
   generateTerrain,
   reshuffleZones,
 } from '../data/terrain';
-import type { Terrain, TerrainEvent, TerrainZone } from '../data/terrain';
+import type { PacketFragment, Terrain, TerrainEvent, TerrainZone } from '../data/terrain';
 import { isZoneSpent, stepCharge, zoneHazard, zoneMods } from '../systems/terrain';
 import type { ZoneMods } from '../systems/terrain';
 import { Fx } from '../systems/fx';
@@ -542,6 +545,8 @@ export class GameScene extends Phaser.Scene {
     hud.orbs = this.orbs.length;
     hud.enemies = this.enemies.length;
     hud.items = this.pickups.length;
+    hud.player.x = this.playerX;
+    hud.player.y = this.playerY;
     this.drawBeams();
     this.updateCamera();
     this.checkLevelUp();
@@ -561,6 +566,7 @@ export class GameScene extends Phaser.Scene {
     this.run.time = skip;
     const bossIndex = Math.max(0, Math.floor((skip - SPAWN.bossFirstAt) / SPAWN.bossEvery) + 1);
     this.nextBossAt = SPAWN.bossFirstAt + bossIndex * SPAWN.bossEvery;
+    this.nextEventAt = skip + TERRAIN.eventSystem.firstDelay;
     this.spawnTimer = 0;
     const levels = Math.min(45, 1 + Math.floor(0.36 * Math.pow(skip, 0.79)));
     this.run.level = levels;
@@ -812,6 +818,36 @@ export class GameScene extends Phaser.Scene {
     this.drawDaemonAuras(time);
     this.drawEmpoweredEnemies(time);
     this.drawBreakpointMarks(time);
+    this.drawPacketFragments(time);
+  }
+
+  private drawPacketFragments(time: number): void {
+    const event = this.activeEvent;
+    if (!event || event.kind !== 'packet' || !event.engaged) return;
+    const g = this.zoneGraphics;
+    for (const fragment of event.fragments) {
+      if (fragment.got) continue;
+      const guarded = fragment.guards.length > 0 && this.alivePacketGuards(fragment) > 0;
+      const color = guarded ? PALETTE.red : TERRAIN_EVENTS.packet.color;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 6 + fragment.x * 0.01);
+      const radius = TERRAIN.packet.grabRadius;
+      g.fillStyle(color, 0.06 + 0.06 * pulse);
+      g.fillCircle(fragment.x, fragment.y, radius);
+      g.lineStyle(3, color, 0.5 + 0.4 * pulse);
+      g.strokeCircle(fragment.x, fragment.y, radius);
+      if (guarded) {
+        g.lineStyle(2, color, 0.35 + 0.3 * pulse);
+        g.strokeCircle(fragment.x, fragment.y, radius + 8);
+      }
+      g.lineStyle(2, PALETTE.white, 0.35 + 0.35 * pulse);
+      g.strokeCircle(fragment.x, fragment.y, 14 + 4 * pulse);
+      g.beginPath();
+      g.moveTo(fragment.x - 8, fragment.y);
+      g.lineTo(fragment.x + 8, fragment.y);
+      g.moveTo(fragment.x, fragment.y - 8);
+      g.lineTo(fragment.x, fragment.y + 8);
+      g.strokePath();
+    }
   }
 
   private drawDaemonAuras(time: number): void {
@@ -881,13 +917,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private aliveGuards(event: TerrainEvent): number {
-    let alive = 0;
-    for (const id of event.guardIds) {
-      const guard = this.enemies.find((enemy) => enemy.id === id && !enemy.dead);
-      if (guard) alive += 1;
-    }
-    return alive;
+  private collectedFragments(event: TerrainEvent): number {
+    let got = 0;
+    for (const fragment of event.fragments) if (fragment.got) got += 1;
+    return got;
   }
 
   private eventDetail(event: TerrainEvent, time: number): string {
@@ -899,7 +932,13 @@ export class GameScene extends Phaser.Scene {
       return `${Math.round(event.charge * 100)}% · 攻速 -${speed}% · 受伤 +${taken}%`;
     }
     if (event.kind === 'packet') {
-      return `守卫 ${this.aliveGuards(event)}/${event.guardIds.length} · ${remaining}s`;
+      let guards = 0;
+      for (const fragment of event.fragments) {
+        if (fragment.got || fragment.guards.length === 0) continue;
+        guards += this.alivePacketGuards(fragment);
+      }
+      const tag = guards > 0 ? ` · 守卫 ${guards}` : '';
+      return `碎片 ${this.collectedFragments(event)}/${event.fragments.length}${tag} · ${remaining}s`;
     }
     return `${event.kills}/${event.need} · ${remaining}s`;
   }
@@ -1039,7 +1078,7 @@ export class GameScene extends Phaser.Scene {
       done: false,
       deadline: time + TERRAIN.eventSystem.acceptWindow,
       engaged: false,
-      guardIds: [],
+      fragments: [],
       kills: 0,
       need: kind === 'commit' ? this.commitNeed : 0,
     };
@@ -1136,7 +1175,7 @@ export class GameScene extends Phaser.Scene {
     } else if (event.kind === 'compile') {
       progress = event.charge;
     } else if (event.kind === 'packet') {
-      progress = 1 - remaining / TERRAIN.packet.fightTime;
+      progress = this.collectedFragments(event) / Math.max(1, event.fragments.length);
     } else {
       progress = event.kills / Math.max(1, event.need);
     }
@@ -1151,6 +1190,15 @@ export class GameScene extends Phaser.Scene {
         active: event.engaged,
         interactable: !event.engaged,
         detail: this.eventDetail(event, time),
+        fragments:
+          event.kind === 'packet'
+            ? event.fragments.map((f) => ({
+                x: f.x,
+                y: f.y,
+                got: f.got,
+                guards: f.guards.slice(),
+              }))
+            : [],
       },
     ];
   }
@@ -1171,11 +1219,86 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updatePacketEvent(event: TerrainEvent): void {
-    if (event.guardIds.length > 0 && this.aliveGuards(event) === 0) {
+    const time = this.run.time;
+    let got = 0;
+    for (const fragment of event.fragments) {
+      if (fragment.got) {
+        got += 1;
+        continue;
+      }
+      const dx = this.playerX - fragment.x;
+      const dy = this.playerY - fragment.y;
+      const dist2 = dx * dx + dy * dy;
+      if (fragment.guards.length === 0) {
+        if (dist2 <= TERRAIN.packet.guardRadius ** 2) this.deployPacketGuards(fragment);
+        continue;
+      }
+      if (this.alivePacketGuards(fragment) > 0) continue;
+      if (dist2 > TERRAIN.packet.grabRadius ** 2) continue;
+      fragment.got = true;
+      got += 1;
+      this.fx.burst(fragment.x, fragment.y, TERRAIN_EVENTS.packet.color, 18, 280, 0.5, 0.85);
+      this.beams.push({
+        kind: 'ring',
+        x: fragment.x,
+        y: fragment.y,
+        angle: 0,
+        length: 26,
+        width: 5,
+        spread: 0,
+        color: TERRAIN_EVENTS.packet.color,
+        life: 0.35,
+        maxLife: 0.35,
+        grow: 9,
+      });
+      const label = `FRAGMENT ${got}/${event.fragments.length}`;
+      this.fx.text(fragment.x, fragment.y - 34, label, '#00ffff', 14);
+      bus.emit('sfx', 'pickup');
+    }
+    if (event.fragments.length > 0 && got >= event.fragments.length) {
       this.completePacket(event);
       return;
     }
-    if (this.run.time >= event.deadline) this.failPacket(event);
+    if (time >= event.deadline) this.failPacket(event);
+  }
+
+  private alivePacketGuards(fragment: PacketFragment): number {
+    let alive = 0;
+    for (const id of fragment.guards) {
+      if (this.enemies.some((enemy) => enemy.id === id && !enemy.dead)) alive += 1;
+    }
+    return alive;
+  }
+
+  private deployPacketGuards(fragment: PacketFragment): void {
+    const kinds: EnemyTypeId[] = ['race', 'memleak', 'thrower'];
+    const total = TERRAIN.packet.guards;
+    for (let i = 0; i < total; i++) {
+      const angle = (i / total) * TAU + this.rng.range(-0.4, 0.4);
+      const x = Phaser.Math.Clamp(
+        fragment.x + Math.cos(angle) * TERRAIN.packet.guardGap,
+        40,
+        WORLD.width - 40,
+      );
+      const y = Phaser.Math.Clamp(
+        fragment.y + Math.sin(angle) * TERRAIN.packet.guardGap,
+        40,
+        WORLD.height - 40,
+      );
+      const guard = this.spawnEnemy(kinds[i % kinds.length], x, y, true);
+      if (!guard) continue;
+      guard.summoned = true;
+      guard.color = TERRAIN_EVENTS.packet.color;
+      guard.hp *= TERRAIN.packet.guardHpScale;
+      guard.maxHp *= TERRAIN.packet.guardHpScale;
+      guard.damage *= TERRAIN.packet.guardDamageScale;
+      if (guard.sprite) guard.sprite.setTint(guard.color);
+      fragment.guards.push(guard.id);
+    }
+    if (fragment.guards.length === 0) return;
+    this.fx.burst(fragment.x, fragment.y, TERRAIN_EVENTS.packet.color, 20, 260, 0.5, 0.85);
+    this.fx.text(fragment.x, fragment.y - 46, 'PACKET GUARDED', '#ff0040', 14);
+    bus.emit('sfx', 'shoot');
   }
 
   private updateCommitEvent(event: TerrainEvent, dt: number): void {
@@ -1193,33 +1316,40 @@ export class GameScene extends Phaser.Scene {
 
   private engagePacket(event: TerrainEvent): void {
     event.engaged = true;
-    event.deadline = this.run.time + TERRAIN.packet.fightTime;
-    const kinds: EnemyTypeId[] = ['race', 'memleak', 'thrower'];
-    for (let i = 0; i < TERRAIN.packet.guards; i++) {
-      const angle = (i / TERRAIN.packet.guards) * TAU + this.rng.range(-0.2, 0.2);
-      const distance = TERRAIN.packet.guardDistance;
-      const x = Phaser.Math.Clamp(this.playerX + Math.cos(angle) * distance, 40, WORLD.width - 40);
-      const y = Phaser.Math.Clamp(this.playerY + Math.sin(angle) * distance, 40, WORLD.height - 40);
-      const guard = this.spawnEnemy(kinds[i % kinds.length], x, y, true);
-      if (!guard) continue;
-      guard.summoned = true;
-      guard.color = TERRAIN_EVENTS.packet.color;
-      guard.hp *= TERRAIN.packet.guardHpScale;
-      guard.maxHp *= TERRAIN.packet.guardHpScale;
-      guard.damage *= TERRAIN.packet.guardDamageScale;
-      if (guard.sprite) guard.sprite.setTint(guard.color);
-      event.guardIds.push(guard.id);
+    event.deadline = this.run.time + TERRAIN.packet.collectTime;
+    event.fragments = [];
+    const total = TERRAIN.packet.fragments;
+    for (let i = 0; i < total; i++) {
+      let spot = this.packetFragmentSpot((i / total) * TAU + this.rng.range(-0.35, 0.35));
+      for (let attempt = 0; attempt < 12 && this.tooCloseToFragment(event.fragments, spot); attempt++) {
+        spot = this.packetFragmentSpot(this.rng.range(0, TAU));
+      }
+      event.fragments.push({ x: spot.x, y: spot.y, got: false, guards: [] });
     }
     this.fx.burst(this.playerX, this.playerY, TERRAIN_EVENTS.packet.color, 26, 320, 0.6, 0.9);
     this.cameras.main.flash(140, 0, 255, 255, false);
     bus.emit('sfx', 'emp');
     bus.emit(EV.banner, {
       text: 'PACKET OPENED',
-      sub: 'guards deployed · finish them before the deadline',
+      sub: `${total} fragments scattered · collect them before the deadline`,
       ms: 1600,
       color: this.eventHex('packet'),
       emphasis: true,
     });
+  }
+
+  private packetFragmentSpot(angle: number): { x: number; y: number } {
+    const distance = this.rng.range(TERRAIN.packet.fragmentMin, TERRAIN.packet.fragmentMax);
+    return {
+      x: Phaser.Math.Clamp(this.playerX + Math.cos(angle) * distance, 60, WORLD.width - 60),
+      y: Phaser.Math.Clamp(this.playerY + Math.sin(angle) * distance, 60, WORLD.height - 60),
+    };
+  }
+
+  private tooCloseToFragment(fragments: PacketFragment[], spot: { x: number; y: number }): boolean {
+    return fragments.some(
+      (fragment) => Math.hypot(fragment.x - spot.x, fragment.y - spot.y) < TERRAIN.packet.fragmentGap,
+    );
   }
 
   private completePacket(event: TerrainEvent): void {
@@ -1275,7 +1405,7 @@ export class GameScene extends Phaser.Scene {
     bus.emit('sfx', 'hurt');
     bus.emit(EV.banner, {
       text: 'PACKET LOST',
-      sub: 'guards survived · no evolution',
+      sub: 'fragments left behind · no evolution',
       ms: 2200,
       color: '#ff0040',
       emphasis: true,
@@ -1679,7 +1809,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private isTypeCapped(id: EnemyTypeId): boolean {
-    const cap = id === 'breakpoint' ? BREAKPOINT.maxAlive : id === 'daemon' ? DAEMON.maxAlive : 0;
+    const cap =
+      id === 'breakpoint'
+        ? breakpointCap(this.run.time)
+        : id === 'daemon'
+          ? daemonCap(this.run.time)
+          : 0;
     if (cap <= 0) return false;
     let alive = 0;
     for (const enemy of this.enemies) {
@@ -1749,7 +1884,8 @@ export class GameScene extends Phaser.Scene {
       link.hitAt = time;
       const buff =
         (a.empoweredUntil ?? 0) > time || (b.empoweredUntil ?? 0) > time ? DAEMON.damage : 1;
-      this.hurtPlayer(Math.max(1, DEADLOCK.damage * buff - this.run.stats.armor));
+      const damage = DEADLOCK.damage * buff * enemyDamageScale(time);
+      this.hurtPlayer(Math.max(1, damage - this.run.stats.armor));
       this.fx.burst(this.playerX, this.playerY, PALETTE.cyan, 6, 150, 0.35, 0.5);
     }
 
@@ -1795,7 +1931,8 @@ export class GameScene extends Phaser.Scene {
       radius: BREAKPOINT.radius,
       damage:
         BREAKPOINT.damage *
-        ((e.empoweredUntil ?? 0) > now ? DAEMON.damage : 1),
+        ((e.empoweredUntil ?? 0) > now ? DAEMON.damage : 1) *
+        enemyDamageScale(now),
       at: now,
       blastAt: now + BREAKPOINT.arm,
     });
@@ -2071,6 +2208,7 @@ export class GameScene extends Phaser.Scene {
   private throwerVolley(e: Enemy): void {
     const base = Math.atan2(this.playerY - e.y, this.playerX - e.x);
     const buff = (e.empoweredUntil ?? 0) > this.run.time ? DAEMON.damage : 1;
+    const damage = THROWER.damage * buff * enemyDamageScale(this.run.time);
     for (let i = 0; i < THROWER.bullets; i++) {
       const angle = base + (i - (THROWER.bullets - 1) / 2) * THROWER.spread;
       this.spawnProjectile({
@@ -2078,7 +2216,7 @@ export class GameScene extends Phaser.Scene {
         y: e.y,
         vx: Math.cos(angle) * THROWER.speed,
         vy: Math.sin(angle) * THROWER.speed,
-        damage: THROWER.damage * buff,
+        damage,
         radius: 10,
         life: 5,
         pierce: 0,
@@ -2099,7 +2237,7 @@ export class GameScene extends Phaser.Scene {
       y: e.y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      damage,
+      damage: damage * enemyDamageScale(this.run.time),
       radius: 11,
       life: 7,
       pierce: 0,
@@ -3233,7 +3371,7 @@ export class GameScene extends Phaser.Scene {
       maxHp: hp,
       radius: def.radius * (elite ? 1.25 : 1),
       speed: def.speed * (elite ? 0.9 : 1),
-      damage: def.damage * (elite ? 1.35 : 1) * (1 + time / 1200),
+      damage: def.damage * (elite ? 1.35 : 1) * enemyDamageScale(time),
       xp: Math.round(def.xp * (elite ? 3 : 1)),
       color: def.color,
       glyph: def.glyph,

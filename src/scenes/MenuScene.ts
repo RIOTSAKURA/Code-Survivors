@@ -120,7 +120,7 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     const codex = this.add
-      .text(0, 108, '[ C ]  查阅图鉴 codex（武器 / 敌人 / 掉落 / 被动）', {
+      .text(0, 108, '[ C ]  查阅图鉴 codex（武器 / 敌人 / 掉落 / 地形 / 事件 / 被动）', {
         fontFamily: MONO_FONT,
         fontSize: '15px',
         color: '#7f849c',

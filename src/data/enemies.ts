@@ -1,4 +1,4 @@
-import { BOSS, PALETTE, SPAWN } from '../config';
+import { BOSS, BREAKPOINT, DAEMON, PALETTE, SPAWN } from '../config';
 import type { EnemyTypeId } from '../core/types';
 
 export interface EnemyDef {
@@ -136,7 +136,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     radius: 15,
     xp: 4,
     unlockAt: 145,
-    weight: (t) => (t > 200 ? 3 : 2),
+    weight: (t) => 2 + Math.min(2, Math.max(0, t - 200) / 300),
     phasing: false,
   },
   daemon: {
@@ -153,7 +153,7 @@ export const ENEMY_DEFS: Record<EnemyTypeId, EnemyDef> = {
     radius: 18,
     xp: 6,
     unlockAt: 175,
-    weight: (t) => (t > 240 ? 2.2 : 1.4),
+    weight: (t) => 1.4 + Math.min(1.6, Math.max(0, t - 240) / 350),
     phasing: false,
   },
   thrower: {
@@ -217,14 +217,40 @@ export function spawnRamp(time: number): number {
 }
 
 export function spawnRate(time: number): number {
-  return Math.min(SPAWN.rateMax, (SPAWN.rateBase + time * SPAWN.rateGrowth) * spawnRamp(time));
+  const raw = (SPAWN.rateBase + time * SPAWN.rateGrowth) * spawnRamp(time);
+  const late = Math.max(0, time - SPAWN.rateLateStart);
+  const ceiling = SPAWN.rateMax + SPAWN.rateLateGrowth * Math.log1p(late / SPAWN.rateLateTau);
+  return Math.min(ceiling, raw);
 }
 
 export function enemyHpScale(time: number, playerLevel: number): number {
   const minutes = time / 60;
+  const late = Math.max(0, minutes - SPAWN.hpLateStart);
   return (
-    1 + minutes * SPAWN.hpScalePerMin + Math.max(0, playerLevel - 1) * SPAWN.hpScalePerLevel
+    1 +
+    minutes * SPAWN.hpScalePerMin +
+    Math.max(0, playerLevel - 1) * SPAWN.hpScalePerLevel +
+    late * late * SPAWN.hpLateQuad
   );
+}
+
+export function enemyDamageScale(time: number): number {
+  const minutes = time / 60;
+  const late = Math.max(0, minutes - SPAWN.damageLateStart);
+  return 1 + minutes * SPAWN.damageScalePerMin + late * late * SPAWN.damageLateQuad;
+}
+
+export function breakpointCap(time: number): number {
+  const steps = Math.max(0, time - BREAKPOINT.capStart);
+  return Math.min(
+    BREAKPOINT.capMax,
+    BREAKPOINT.maxAlive + Math.floor(steps / BREAKPOINT.capEvery),
+  );
+}
+
+export function daemonCap(time: number): number {
+  const steps = Math.max(0, time - DAEMON.capStart);
+  return Math.min(DAEMON.capMax, DAEMON.maxAlive + Math.floor(steps / DAEMON.capEvery));
 }
 
 export function raceSprintFactor(dist: number): number {
