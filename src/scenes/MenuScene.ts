@@ -94,7 +94,9 @@ export class MenuScene extends Phaser.Scene {
         [
           'WASD / ARROWS   move',
           'AUTO            fire at nearest bug',
+          'F               cycle focus target',
           '1 2 3 / CLICK   pick upgrade',
+          'R / X           reroll / skip card',
           'P / ESC         pause        M  mute',
         ].join('\n'),
         {

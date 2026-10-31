@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { DPR, MONO_FONT, PALETTE, TERRAIN, TEX_SCALE } from '../config';
+import { DPR, MONO_FONT, PALETTE, SPAWN, TERRAIN, TEX_SCALE } from '../config';
 import { applyTextResolution, setupFixedCamera, viewHeight, viewWidth } from '../core/hidpi';
 import { ENEMY_DEFS, SPAWN_POOL, enemyHpScale, enemySpeedScale } from '../data/enemies';
 import { ITEM_DEFS, ITEM_IDS, itemDropChance } from '../data/items';
@@ -359,11 +359,17 @@ export class CodexScene extends Phaser.Scene {
       });
     }
     if (id === 'enemy') {
-      const ids = [...SPAWN_POOL, 'boss'] as const;
+      const ids = [...SPAWN_POOL, 'boss', 'boss2'] as const;
       return ids.map((enemyId) => {
         const def = ENEMY_DEFS[enemyId];
         const stats = [`HP ${def.hp} · 速度 ${def.speed} · 伤害 ${def.damage} · 经验 ${def.xp}`];
-        stats.push(Number.isFinite(def.unlockAt) ? `${def.unlockAt}s 起出现` : '每 115s 登场');
+        stats.push(
+          Number.isFinite(def.unlockAt)
+            ? `${def.unlockAt}s 起出现`
+            : enemyId === 'boss2'
+              ? `第二个 Boss · 每 ${SPAWN.bossEvery}s 交替登场`
+              : `每 ${SPAWN.bossEvery}s 登场`,
+        );
         if (enemyId === 'syntax' || enemyId === 'race') {
           const t = 180;
           stats.push(

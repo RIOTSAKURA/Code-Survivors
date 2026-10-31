@@ -50,10 +50,10 @@ export const PASSIVE_DEFS: Record<PassiveId, PassiveDef> = {
     name: '缓存优化',
     symbol: '>>',
     tagline: 'Cache Opt',
-    desc: '连续攻击同一目标时叠加攻速，切换目标或停火后重置',
+    desc: '标记目标连续受击时叠加攻速；切换标记或停火后重置',
     color: PALETTE.yellow,
     maxLevel: 5,
-    note: `每层 +${Math.round(CACHE_PASSIVE.perStack(1) * 100)}%~${Math.round(CACHE_PASSIVE.perStack(5) * 100)}% 攻速 · 最多 ${CACHE_PASSIVE.maxStacks} 层`,
+    note: `所有武器共享同一条集火链 · 每层 +${Math.round(CACHE_PASSIVE.perStack(1) * 100)}%~${Math.round(CACHE_PASSIVE.perStack(5) * 100)}% 攻速 · 最多 ${CACHE_PASSIVE.maxStacks} 层`,
   },
   memory: {
     id: 'memory',

@@ -1,5 +1,5 @@
-import { PALETTE } from '../config';
-import type { RunState, WeaponId } from '../core/types';
+import { PALETTE, RARE } from '../config';
+import type { RareModuleId, RunState, WeaponId } from '../core/types';
 import { evolutionCandidates } from './evolutions';
 import { WEAPON_DEFS, WEAPON_IDS } from './weapons';
 
@@ -10,6 +10,7 @@ export type RewardId =
   | 'module_cooldown'
   | 'module_armor'
   | 'module_speed'
+  | RareModuleId
   | 'restore';
 
 export interface BossReward {
@@ -21,6 +22,7 @@ export interface BossReward {
   color: number;
   evolutionWeapon?: WeaponId;
   upgradeWeapon?: WeaponId;
+  rare?: boolean;
 }
 
 export interface RewardRng {
@@ -62,6 +64,45 @@ const MODULES: BossReward[] = [
   },
 ];
 
+export const RARE_MODULES: BossReward[] = [
+  {
+    id: 'reflect_charge',
+    name: '反射充能',
+    symbol: '()~',
+    tagline: 'Reflect Charge',
+    desc: '反射弹击杀积攒护盾充能，满后立即恢复一层类型护盾',
+    color: PALETTE.cyan,
+    rare: true,
+  },
+  {
+    id: 'gc_vulnerable',
+    name: '回收标记',
+    symbol: '{}!',
+    tagline: 'GC Mark',
+    desc: `GC 清扫命中的敌人易伤 +${Math.round((RARE.gcVulnerable.mult - 1) * 100)}%，持续 ${RARE.gcVulnerable.duration}s`,
+    color: PALETTE.purple,
+    rare: true,
+  },
+  {
+    id: 'focus_transfer',
+    name: '焦点转移',
+    symbol: ';>',
+    tagline: 'Focus Relay',
+    desc: '集火层数满时击杀标记目标，把一半层数转给最近的敌人',
+    color: PALETTE.yellow,
+    rare: true,
+  },
+  {
+    id: 'burn_detonate',
+    name: '燃尽回响',
+    symbol: '!*',
+    tagline: 'Burn Detonation',
+    desc: '燃烧区持续时间 -35%，结束时再爆发一次范围伤害',
+    color: PALETTE.orange,
+    rare: true,
+  },
+];
+
 export const REPAIR_REWARD: BossReward = {
   id: 'restore',
   name: '热补丁空投',
@@ -70,6 +111,27 @@ export const REPAIR_REWARD: BossReward = {
   desc: '最大 HP +25，并回复 60% 最大生命',
   color: PALETTE.green,
 };
+
+export function rareModuleCount(run: RunState): number {
+  return Object.values(run.rareModules).reduce((sum, level) => sum + (level ?? 0), 0);
+}
+
+function rareRequirementMet(run: RunState, id: RewardId): boolean {
+  if (id === 'reflect_charge') return run.evolutions.orbit === 'orbit_reflect';
+  if (id === 'gc_vulnerable') return (run.passives.gc ?? 0) > 0;
+  if (id === 'focus_transfer') return run.evolutions.dart === 'dart_stack' || (run.passives.cache ?? 0) > 0;
+  if (id === 'burn_detonate') return run.evolutions.bomb === 'bomb_burn';
+  return false;
+}
+
+export function availableRareModules(run: RunState): BossReward[] {
+  if (rareModuleCount(run) >= RARE.limit) return [];
+  return RARE_MODULES.filter(
+    (module) =>
+      rareRequirementMet(run, module.id) &&
+      (run.rareModules[module.id as RareModuleId] ?? 0) === 0,
+  );
+}
 
 function evolutionReward(run: RunState, pending: WeaponId[]): BossReward | null {
   const candidates = evolutionCandidates(run, pending);
@@ -107,8 +169,9 @@ function weaponLevelReward(run: RunState, rng: RewardRng): BossReward | null {
   };
 }
 
-export function rollRareModule(rng: RewardRng): BossReward {
-  return rng.pick(MODULES);
+export function rollRareModule(run: RunState, rng: RewardRng): BossReward {
+  const available = availableRareModules(run);
+  return available.length > 0 ? rng.pick(available) : rng.pick(MODULES);
 }
 
 export function rollBossRewards(
@@ -117,17 +180,28 @@ export function rollBossRewards(
   pendingEvolutions: WeaponId[] = [],
 ): BossReward[] {
   const rewards: BossReward[] = [];
+  let rare = availableRareModules(run);
   const evolve = evolutionReward(run, pendingEvolutions);
   if (evolve) rewards.push(evolve);
   else {
     const upgrade = weaponLevelReward(run, rng);
     if (upgrade) rewards.push(upgrade);
+    else if (rare.length > 0) {
+      rewards.push(rare[0]);
+      rare = rare.slice(1);
+    }
   }
-  rewards.push(rng.pick(MODULES));
+  if (rare.length > 0) {
+    const pick = rng.pick(rare);
+    rewards.push(pick);
+    rare = rare.filter((module) => module !== pick);
+  } else {
+    rewards.push(rng.pick(MODULES));
+  }
   rewards.push(REPAIR_REWARD);
-  for (const extra of MODULES) {
+  for (const extra of [...rare, ...MODULES]) {
     if (rewards.length >= 3) break;
     if (!rewards.includes(extra)) rewards.push(extra);
   }
-  return rewards;
+  return rewards.slice(0, 3);
 }

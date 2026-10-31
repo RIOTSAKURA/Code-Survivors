@@ -1,7 +1,7 @@
 {
   "name": "code-survivors",
   "private": true,
-  "version": "1.10.0",
+  "version": "1.11.0",
   "type": "module",
   "main": "electron/main.cjs",
   "description": "A code-themed Vampire Survivors style auto-shooter built with Phaser 3",

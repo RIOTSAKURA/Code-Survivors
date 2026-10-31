@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOSS, BREAKPOINT, DAEMON, ORB, PLAYER, SPAWN, THROWER } from '../src/config';
+import { BOSS, BOSS2, BREAKPOINT, DAEMON, ORB, PLAYER, SPAWN, THROWER } from '../src/config';
 import {
   ENEMY_DEFS,
   SPAWN_POOL,
@@ -375,7 +375,7 @@ describe('codex data', () => {
       expect(def.symbol.length).toBeGreaterThan(0);
       expect(def.tagline.length).toBeGreaterThan(0);
     }
-    for (const id of [...SPAWN_POOL, 'boss'] as const) {
+    for (const id of [...SPAWN_POOL, 'boss', 'boss2'] as const) {
       const def = ENEMY_DEFS[id];
       expect(def.desc.length).toBeGreaterThan(4);
       expect(def.glyph.length).toBeGreaterThan(0);
@@ -385,6 +385,33 @@ describe('codex data', () => {
       expect(def.desc.length).toBeGreaterThan(4);
       expect(def.note.length).toBeGreaterThan(4);
     }
+  });
+});
+
+describe('second boss', () => {
+  it('ships a distinct boss with a moving weak point', () => {
+    expect(ENEMY_DEFS.boss2.name).not.toBe(ENEMY_DEFS.boss.name);
+    expect(ENEMY_DEFS.boss2.desc).toContain('弱点');
+    expect(BOSS2.weakTime).toBeGreaterThan(0);
+    expect(BOSS2.weakEvery).toBeGreaterThan(BOSS2.weakTime);
+    expect(BOSS2.weakArc).toBeGreaterThan(0);
+    expect(BOSS2.weakArc).toBeLessThan(Math.PI);
+    expect(BOSS2.weakMult).toBeGreaterThan(1);
+    expect(BOSS2.armorScale).toBeLessThan(1);
+  });
+
+  it('leans on movement instead of copying the segfault barrage', () => {
+    expect(BOSS2.chaseSpeed).toBeGreaterThan(1);
+    expect(BOSS2.passiveSpeed).toBeLessThan(1);
+    expect(BOSS2.barrage.phase2.bullets).toBeGreaterThan(BOSS2.barrage.phase1.bullets);
+    expect(BOSS2.summon.pool).toContain('race');
+    expect(BOSS2.summon.pool).not.toContain('stack');
+  });
+
+  it('stays a short, telegraphed window rather than permanent armour', () => {
+    expect(BOSS2.weakTime / BOSS2.weakEvery).toBeGreaterThan(0.15);
+    expect(BOSS2.weakTime / BOSS2.weakEvery).toBeLessThan(0.6);
+    expect(BOSS2.weakMult * BOSS2.weakTime).toBeGreaterThan(BOSS2.armorScale * BOSS2.weakEvery * 0.5);
   });
 });
 

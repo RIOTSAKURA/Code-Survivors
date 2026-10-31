@@ -2,9 +2,11 @@ import Phaser from 'phaser';
 import { DPR, MONO_FONT, PALETTE } from '../config';
 import { sfx } from '../core/audio';
 import { applyTextResolution, setupFixedCamera, viewHeight, viewWidth } from '../core/hidpi';
-import { formatTime, readBest, writeBest } from '../core/records';
+import { formatTime, writeBest } from '../core/records';
 import { EV, bus, hud } from '../core/state';
+import type { RunReport } from '../core/state';
 import type { ChoiceCard } from '../systems/progression';
+import { recapJsonText, reportText } from '../systems/recap';
 
 interface LevelPayload {
   cards: ChoiceCard[];
@@ -14,12 +16,7 @@ interface LevelPayload {
   footer?: string;
 }
 
-interface OverPayload {
-  time: number;
-  kills: number;
-  level: number;
-  weapons: number;
-}
+type OverPayload = RunReport;
 
 interface BannerPayload {
   text: string;
@@ -46,6 +43,7 @@ class CardView {
   private readonly name: Phaser.GameObjects.Text;
   private readonly level: Phaser.GameObjects.Text;
   private readonly desc: Phaser.GameObjects.Text;
+  private readonly synergy: Phaser.GameObjects.Text;
   private readonly chip: Phaser.GameObjects.Text;
   private readonly hint: Phaser.GameObjects.Text;
   readonly index: number;
@@ -67,6 +65,9 @@ class CardView {
     const desc = scene.add
       .text(88, 60, '', { fontFamily: MONO_FONT, fontSize: '14px', color: '#a6adc8' })
       .setOrigin(0, 0.5);
+    const synergy = scene.add
+      .text(88, 74, '', { fontFamily: MONO_FONT, fontSize: '11px', color: '#ffe066' })
+      .setOrigin(0, 0.5);
     const chip = scene.add
       .text(CARD_W - 66, 26, '', { fontFamily: MONO_FONT, fontSize: '12px', color: '#1e1e2e', fontStyle: 'bold' })
       .setOrigin(0.5);
@@ -79,8 +80,8 @@ class CardView {
       })
       .setOrigin(1, 0.5);
 
-    for (const t of [symbol, name, level, desc, chip, hint]) t.setResolution(DPR);
-    this.container = scene.add.container(0, 0, [bg, accent, symbol, name, level, desc, chip, hint]);
+    for (const t of [symbol, name, level, desc, synergy, chip, hint]) t.setResolution(DPR);
+    this.container = scene.add.container(0, 0, [bg, accent, symbol, name, level, desc, synergy, chip, hint]);
     this.container.setSize(CARD_W, CARD_H);
     this.container.setInteractive(
       new Phaser.Geom.Rectangle(CARD_W / 2, CARD_H / 2, CARD_W, CARD_H),
@@ -102,6 +103,7 @@ class CardView {
     this.name = name;
     this.level = level;
     this.desc = desc;
+    this.synergy = synergy;
     this.chip = chip;
     this.hint = hint;
   }
@@ -124,6 +126,9 @@ class CardView {
         : `Lv ${card.level} → ${card.nextLevel}`);
     this.level.setText(`  ${levelText}`).setX(88 + this.name.width + 10);
     this.desc.setText(card.desc);
+    this.desc.setY(card.synergy ? 46 : 60);
+    this.synergy.setVisible(Boolean(card.synergy));
+    this.synergy.setText(card.synergy ?? '');
     if (card.chip) {
       this.chip.setText(card.chip).setBackgroundColor(hex(card.color));
     } else if (card.maxed) {
@@ -157,6 +162,8 @@ export class UIScene extends Phaser.Scene {
   private statText!: Phaser.GameObjects.Text;
   private loadoutText!: Phaser.GameObjects.Text;
   private zoneText!: Phaser.GameObjects.Text;
+  private themeText!: Phaser.GameObjects.Text;
+  private focusText!: Phaser.GameObjects.Text;
   private objectivePanel!: Phaser.GameObjects.Container;
   private objectiveBg!: Phaser.GameObjects.Rectangle;
   private objectiveAccent!: Phaser.GameObjects.Rectangle;
@@ -180,8 +187,10 @@ export class UIScene extends Phaser.Scene {
   private cards: CardView[] = [];
 
   private overPanel!: Phaser.GameObjects.Container;
+  private overBg!: Phaser.GameObjects.Rectangle;
   private overTitle!: Phaser.GameObjects.Text;
-  private overBody!: Phaser.GameObjects.Text;
+  private overFile!: Phaser.GameObjects.Text;
+  private jsonBody!: Phaser.GameObjects.Container;
   private overHint!: Phaser.GameObjects.Text;
 
   private pausePanel!: Phaser.GameObjects.Container;
@@ -198,13 +207,18 @@ export class UIScene extends Phaser.Scene {
   private cachedTimer = '';
   private cachedObjective = '';
   private cachedPassive = '';
+  private cachedTheme = '';
+  private cachedFocus = '';
   private overVisible = false;
+  private victoryVisible = false;
+  private report: RunReport | null = null;
 
   constructor() {
     super('UI');
   }
 
   create(): void {
+    (window as unknown as { __report?: RunReport }).__report = undefined;
     setupFixedCamera(this.cameras.main);
 
     this.xpBarBg = this.add.rectangle(0, 0, 10, 5, 0x313244).setOrigin(0);
@@ -239,6 +253,19 @@ export class UIScene extends Phaser.Scene {
       color: '#a6adc8',
     });
     this.passiveText.setVisible(false);
+    this.themeText = this.add.text(16, 156, '', {
+      fontFamily: MONO_FONT,
+      fontSize: '13px',
+      color: '#ffa500',
+      fontStyle: 'bold',
+    });
+    this.themeText.setVisible(false);
+    this.focusText = this.add.text(16, 178, '', {
+      fontFamily: MONO_FONT,
+      fontSize: '13px',
+      color: '#ffe066',
+    });
+    this.focusText.setVisible(false);
     this.timerText = this.add
       .text(0, 14, '00:00', { fontFamily: MONO_FONT, fontSize: '30px', color: '#cdd6f4', fontStyle: 'bold' })
       .setOrigin(0.5, 0);
@@ -246,7 +273,7 @@ export class UIScene extends Phaser.Scene {
       .text(0, 20, '', { fontFamily: MONO_FONT, fontSize: '16px', color: '#ffa500' })
       .setOrigin(1, 0);
     this.hintText = this.add
-      .text(0, 0, 'WASD move   E interact   P pause   M mute', {
+      .text(0, 0, 'WASD move   E interact   F focus   P pause   M mute', {
         fontFamily: MONO_FONT,
         fontSize: '13px',
         color: '#585b70',
@@ -338,34 +365,121 @@ export class UIScene extends Phaser.Scene {
   }
 
   private buildOverPanel(): void {
-    const bg = this.add.rectangle(0, 0, 560, 260, 0x11111b, 0.94).setOrigin(0.5);
+    const bg = this.add.rectangle(0, 0, 900, 560, 0x11111b, 1).setOrigin(0.5);
     bg.setStrokeStyle(1, PALETTE.red);
-    this.overTitle = this.add
-      .text(0, -92, 'PROCESS TERMINATED', {
+    this.overBg = bg;
+    const chrome = this.add.rectangle(0, -252, 900, 32, 0x181825, 0.98).setOrigin(0.5);
+    chrome.setStrokeStyle(1, 0x313244);
+    this.overFile = this.add
+      .text(-420, -252, '~/code-survivors/run/recap.json', {
         fontFamily: MONO_FONT,
-        fontSize: '30px',
+        fontSize: '12px',
+        color: '#7f849c',
+      })
+      .setOrigin(0, 0.5);
+    const badge = this.add
+      .text(420, -252, 'JSON', {
+        fontFamily: MONO_FONT,
+        fontSize: '11px',
+        color: '#1e1e2e',
+        fontStyle: 'bold',
+      })
+      .setOrigin(1, 0.5);
+    badge.setPadding(7, 2, 7, 2).setBackgroundColor('#00ffff');
+    this.overTitle = this.add
+      .text(0, -204, 'PROCESS TERMINATED', {
+        fontFamily: MONO_FONT,
+        fontSize: '24px',
         color: '#ff0040',
         fontStyle: 'bold',
       })
       .setOrigin(0.5);
-    this.overBody = this.add
-      .text(0, 6, '', {
-        fontFamily: MONO_FONT,
-        fontSize: '16px',
-        color: '#cdd6f4',
-        align: 'center',
-        lineSpacing: 8,
-      })
-      .setOrigin(0.5);
+    this.jsonBody = this.add.container(0, 0);
     this.overHint = this.add
-      .text(0, 108, '[R] redeploy    [Q] quit to shell', {
+      .text(0, 252, '[R] redeploy    [C] copy JSON    [Q] quit to shell', {
         fontFamily: MONO_FONT,
-        fontSize: '15px',
+        fontSize: '13px',
         color: '#ffe066',
       })
       .setOrigin(0.5);
-    this.overPanel = this.add.container(0, 0, [bg, this.overTitle, this.overBody, this.overHint]);
+    this.overPanel = this.add.container(0, 0, [
+      bg,
+      chrome,
+      this.overFile,
+      badge,
+      this.overTitle,
+      this.jsonBody,
+      this.overHint,
+    ]);
     this.overPanel.setVisible(false);
+  }
+
+  private renderRecapJson(text: string): void {
+    this.jsonBody.removeAll(true);
+    const lines = text.split('\n');
+    const x = -420;
+    const contentX = -386;
+    const top = -166;
+    const step = 15;
+    lines.forEach((line, index) => {
+      const y = top + index * step;
+      const number = this.add
+        .text(x, y, String(index + 1).padStart(2, '0'), {
+          fontFamily: MONO_FONT,
+          fontSize: '10px',
+          color: '#45475a',
+        })
+        .setOrigin(0, 0)
+        .setResolution(DPR);
+      this.jsonBody.add(number);
+      const match = line.match(/^(\s*)"([^"]+)":\s*(.*)$/);
+      if (match) {
+        const key = this.add
+          .text(contentX, y, `${match[1]}"${match[2]}":`, {
+            fontFamily: MONO_FONT,
+            fontSize: '12px',
+            color: '#89b4fa',
+          })
+          .setOrigin(0, 0)
+          .setResolution(DPR);
+        const valueColor =
+          match[2] === 'result'
+            ? match[3].includes('SHIPPED')
+              ? '#00ff41'
+              : '#ff0040'
+            : this.jsonValueColor(match[3]);
+        const value = this.add
+          .text(contentX + key.width + 4, y, match[3], {
+            fontFamily: MONO_FONT,
+            fontSize: '12px',
+            color: valueColor,
+          })
+          .setOrigin(0, 0)
+          .setResolution(DPR);
+        this.jsonBody.add([key, value]);
+        return;
+      }
+      const trimmed = line.trim();
+      const color = /^[{}[\],]+$/.test(trimmed) ? '#585b70' : this.jsonValueColor(line);
+      const content = this.add
+        .text(contentX, y, line, {
+          fontFamily: MONO_FONT,
+          fontSize: '12px',
+          color,
+        })
+        .setOrigin(0, 0)
+        .setResolution(DPR);
+      this.jsonBody.add(content);
+    });
+  }
+
+  private jsonValueColor(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('"')) return '#a6e3a1';
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) return '#89dceb';
+    if (/^-?\d/.test(trimmed)) return '#f9e2af';
+    if (trimmed.startsWith('true') || trimmed.startsWith('false')) return '#cba6f7';
+    return '#a6adc8';
   }
 
   private buildPausePanel(): void {
@@ -465,7 +579,9 @@ export class UIScene extends Phaser.Scene {
     };
 
     on<LevelPayload>(EV.levelUp, (payload) => this.showLevelUp(payload));
-    on<OverPayload>(EV.gameOver, (payload) => this.showGameOver(payload));
+    on<OverPayload>(EV.gameOver, (payload) => this.showRunReport(payload, false));
+    on<OverPayload>(EV.victory, (payload) => this.showRunReport(payload, true));
+    on(EV.endless, () => this.hideOverlay());
     on<BannerPayload>(EV.banner, (payload) => this.showBanner(payload));
     on(EV.sfxToggle, () => {
       const enabled = sfx.toggle();
@@ -480,7 +596,24 @@ export class UIScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-TWO', () => this.pick(1));
     this.input.keyboard!.on('keydown-THREE', () => this.pick(2));
     this.input.keyboard!.on('keydown-R', () => {
+      if (this.panel.visible && (hud.panel === 'level' || hud.panel === 'free')) {
+        bus.emit(EV.choiceAction, { action: 'reroll' });
+        return;
+      }
+      if (this.victoryVisible) {
+        this.continueEndless();
+        return;
+      }
       if (this.overVisible) this.restart();
+    });
+    this.input.keyboard!.on('keydown-X', () => {
+      if (this.panel.visible && (hud.panel === 'level' || hud.panel === 'free') && hud.skips > 0) {
+        bus.emit(EV.choiceAction, { action: 'skip' });
+        this.panel.setVisible(false);
+      }
+    });
+    this.input.keyboard!.on('keydown-C', () => {
+      if (this.overVisible) void this.copyRecap();
     });
     this.input.keyboard!.on('keydown-Q', () => {
       if (hud.confirming) {
@@ -527,8 +660,12 @@ export class UIScene extends Phaser.Scene {
 
   private hideOverlay(): void {
     this.overVisible = false;
+    this.victoryVisible = false;
+    this.report = null;
+    hud.victory = false;
     hud.confirming = false;
     this.overPanel.setVisible(false);
+    this.jsonBody.removeAll(true);
     this.panel.setVisible(false);
     this.pausePanel.setVisible(false);
     this.confirmPanel.setVisible(false);
@@ -571,27 +708,49 @@ export class UIScene extends Phaser.Scene {
     this.tweens.add({ targets: this.bannerText, scale: 1, duration: 160, ease: 'Back.out' });
   }
 
-  private showGameOver(payload: OverPayload): void {
+  private showRunReport(payload: OverPayload, victory: boolean): void {
     const isRecord = writeBest({ time: payload.time, kills: payload.kills, level: payload.level });
-    const best = readBest();
+    this.report = payload;
+    (window as unknown as { __report?: RunReport }).__report = payload;
     this.overVisible = true;
-    this.overTitle.setText(isRecord ? 'NEW RECORD' : 'PROCESS TERMINATED');
-    this.overTitle.setColor(isRecord ? '#00ff41' : '#ff0040');
-    this.overBody.setText(
-      [
-        `survived   ${formatTime(payload.time)}`,
-        `kills      ${payload.kills}`,
-        `level      ${payload.level}`,
-        `modules    ${payload.weapons}/6`,
-        best ? `best       ${formatTime(best.time)} · ${best.kills} kills` : '',
-      ]
-        .filter(Boolean)
-        .join('\n'),
+    this.victoryVisible = victory;
+    this.bannerTimer = 0;
+    this.bannerText.setAlpha(0);
+    this.bannerSub.setAlpha(0);
+    this.overTitle.setText(
+      victory ? 'STACK SHIPPED' : isRecord ? 'NEW RECORD' : 'PROCESS TERMINATED',
+    );
+    this.overTitle.setColor(victory || isRecord ? '#00ff41' : '#ff0040');
+    const json = recapJsonText(payload);
+    this.renderRecapJson(json);
+    (window as unknown as { __reportJson?: string }).__reportJson = json;
+    this.overBg.setStrokeStyle(1, victory || isRecord ? PALETTE.green : PALETTE.red);
+    this.overHint.setText(
+      victory
+        ? '[R] endless mode    [C] copy JSON    [Q] quit to shell'
+        : '[R] redeploy    [C] copy JSON    [Q] quit to shell',
     );
     this.overPanel.setVisible(true);
     this.overPanel.setAlpha(0);
     this.tweens.add({ targets: this.overPanel, alpha: 1, duration: 320 });
     this.panel.setVisible(false);
+    hud.victory = victory;
+  }
+
+  private continueEndless(): void {
+    this.hideOverlay();
+    bus.emit(EV.endless, undefined);
+  }
+
+  private async copyRecap(): Promise<void> {
+    if (!this.report) return;
+    const text = reportText(this.report);
+    try {
+      await navigator.clipboard.writeText(text);
+      this.showBanner({ text: 'recap copied', sub: 'paste it anywhere to share the build', ms: 1100 });
+    } catch {
+      this.showBanner({ text: 'clipboard blocked', sub: 'screenshot the panel instead', ms: 1100 });
+    }
   }
 
   override update(_time: number, delta: number): void {
@@ -676,15 +835,42 @@ export class UIScene extends Phaser.Scene {
     }
 
     const passiveParts: string[] = [];
-    if (hud.cache && hud.cache.stacks > 0) passiveParts.push(`>> ${hud.cache.stacks}/${hud.cache.max}`);
+    if (hud.cache) passiveParts.push(`>> chain ${hud.cache.stacks}/${hud.cache.max}`);
     if (hud.gc) passiveParts.push(`{} ${hud.gc.charge}/${hud.gc.need}`);
     if (hud.shield) passiveParts.push('T shield');
+    if (hud.shieldCharge > 0) passiveParts.push(`() ${hud.shieldCharge}/100`);
     const passive = passiveParts.join('   ');
     if (passive !== this.cachedPassive) {
       this.cachedPassive = passive;
       this.passiveText.setText(passive);
     }
     this.passiveText.setVisible(passive.length > 0);
+
+    if (hud.theme && !hud.boss && !this.overVisible) {
+      const theme = `▶ ${hud.theme.label} · ${hud.theme.name} · ${Math.ceil(hud.theme.timeLeft)}s`;
+      if (theme !== this.cachedTheme) {
+        this.cachedTheme = theme;
+        this.themeText.setText(theme);
+        this.themeText.setColor(hex(hud.theme.color));
+      }
+      this.themeText.setVisible(true);
+    } else {
+      this.themeText.setVisible(false);
+      this.cachedTheme = '';
+    }
+
+    if (hud.focus && !this.overVisible) {
+      const focus = `◎ ${hud.focus.name} · chain ${hud.focus.stacks}/${hud.focus.max} · ${hud.focus.timeLeft.toFixed(1)}s`;
+      if (focus !== this.cachedFocus) {
+        this.cachedFocus = focus;
+        this.focusText.setText(focus);
+        this.focusText.setColor(hex(hud.focus.color));
+      }
+      this.focusText.setVisible(true);
+    } else {
+      this.focusText.setVisible(false);
+      this.cachedFocus = '';
+    }
 
     const timer = formatTime(hud.time);
     if (timer !== this.cachedTimer) {
@@ -703,7 +889,9 @@ export class UIScene extends Phaser.Scene {
       this.bossBarBg.setVisible(true);
       this.bossBarFill.setVisible(true);
       this.bossName.setVisible(true);
-      this.bossName.setText(`${hud.boss.name}  ·  PHASE ${hud.boss.phase}`);
+      this.bossName.setText(
+        `${hud.boss.name}  ·  PHASE ${hud.boss.phase}${hud.boss.weak ? '  ·  WEAK POINT' : ''}`,
+      );
       this.bossBarFill.width = 458 * ratio;
     } else {
       this.bossBarBg.setVisible(false);
@@ -761,6 +949,7 @@ export class UIScene extends Phaser.Scene {
     this.panel.setPosition(0, 0);
 
     this.overPanel.setPosition(w / 2, h / 2);
+    this.overPanel.setScale(Math.min(1, (w - 24) / 920));
     this.pausePanel.setPosition(w / 2, h / 2);
     this.confirmPanel.setPosition(w / 2, h / 2);
     this.bannerText.setPosition(w / 2, h * 0.2);

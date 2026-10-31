@@ -146,6 +146,8 @@ land in `screenshots/` (gitignored).
 - `?commitNear=1` / `?commitDuration=<seconds>` / `?commitNeed=<kills>` — immediately offers the dangerous commit and tunes its challenge.
 - `?bossHp=<fraction>` — scales boss health so the kill-reward path is testable quickly.
 - `?passives=<modules>` — starts those passives at max level (`cache`, `parallel`, `gc`, `typesafe`, comma-separated; `cache:3` for a specific level).
+- `?slots=<n>` — clamps the weapon slot cap for the four-slot challenge configuration.
+- `?bossKills=<n>` — pre-seeds cleared bosses so the second boss and third-boss victory are reachable in fixtures.
 - `window.__menu` — `{ marchers, particles }` for the menu's background swarm, so the smoke test can
   tell whether the animation is actually running.
 - `window.__scenes` — the keys of every active scene, so tests can catch a scene left running

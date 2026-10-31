@@ -12,6 +12,10 @@ import {
   EVOLUTION_WEAPONS,
   ORBIT_REFLECT,
   ORBIT_WIDE,
+  CONE_BURST,
+  CONE_WALL,
+  RAY_LOCK,
+  RAY_SWEEP,
   evolutionCandidates,
   evolutionsFor,
   isEvolutionWeapon,
@@ -19,18 +23,20 @@ import {
 import { applyEvolution, canEvolve, toEvolutionCard } from '../src/systems/progression';
 
 describe('weapon evolutions', () => {
-  it('ships two branches for every supported weapon and nothing else', () => {
-    expect(EVOLUTION_WEAPONS).toEqual(['dart', 'orbit', 'bomb', 'clone']);
+  it('ships two branches for every weapon', () => {
+    expect(EVOLUTION_WEAPONS).toEqual(['dart', 'orbit', 'bomb', 'ray', 'cone', 'clone']);
     for (const weapon of EVOLUTION_WEAPONS) {
       const options = evolutionsFor(weapon);
       expect(options).toHaveLength(2);
       expect(options.map((id) => EVOLUTION_DEFS[id].branch).sort()).toEqual(['A', 'B']);
       for (const id of options) expect(EVOLUTION_DEFS[id].weapon).toBe(weapon);
     }
-    expect(evolutionsFor('ray')).toEqual([]);
+    expect(evolutionsFor('ray')).toEqual(['ray_lock', 'ray_sweep']);
+    expect(evolutionsFor('cone')).toEqual(['cone_burst', 'cone_wall']);
     expect(isEvolutionWeapon('bomb')).toBe(true);
     expect(isEvolutionWeapon('clone')).toBe(true);
-    expect(isEvolutionWeapon('ray')).toBe(false);
+    expect(isEvolutionWeapon('ray')).toBe(true);
+    expect(isEvolutionWeapon('cone')).toBe(true);
   });
 
   it('only unlocks at the evolution level and only once', () => {
@@ -46,13 +52,19 @@ describe('weapon evolutions', () => {
     expect(run.evolutions.dart).toBe('dart_bounce');
   });
 
-  it('applies the bomb and clone branches', () => {
+  it('applies the bomb, ray, cone and clone branches', () => {
     const run = createRun();
     run.weapons.bomb = 1;
+    run.weapons.ray = 1;
+    run.weapons.cone = 1;
     run.weapons.clone = 1;
     expect(applyEvolution(run, 'bomb_chain')).toBe('bomb');
+    expect(applyEvolution(run, 'ray_sweep')).toBe('ray');
+    expect(applyEvolution(run, 'cone_wall')).toBe('cone');
     expect(applyEvolution(run, 'clone_focus')).toBe('clone');
     expect(run.evolutions.bomb).toBe('bomb_chain');
+    expect(run.evolutions.ray).toBe('ray_sweep');
+    expect(run.evolutions.cone).toBe('cone_wall');
     expect(run.evolutions.clone).toBe('clone_focus');
   });
 
@@ -67,9 +79,11 @@ describe('weapon evolutions', () => {
     const run = createRun();
     run.weapons.dart = 3;
     run.weapons.orbit = 6;
-    expect(evolutionCandidates(run)).toEqual(['dart', 'orbit']);
-    expect(evolutionCandidates(run, ['dart'])).toEqual(['orbit']);
+    run.weapons.ray = 2;
+    expect(evolutionCandidates(run)).toEqual(['dart', 'orbit', 'ray']);
+    expect(evolutionCandidates(run, ['dart'])).toEqual(['orbit', 'ray']);
     run.evolutions.orbit = 'orbit_reflect';
+    run.evolutions.ray = 'ray_lock';
     expect(evolutionCandidates(run, ['dart'])).toEqual([]);
   });
 
@@ -98,5 +112,9 @@ describe('weapon evolutions', () => {
     expect(BOMB_CHAIN.damageScale).toBeLessThan(1);
     expect(CLONE_FOCUS.rangeScale).toBeGreaterThan(1);
     expect(CLONE_SPREAD.rangeScale).toBeGreaterThan(1);
+    expect(RAY_LOCK.perStack).toBeGreaterThan(0);
+    expect(RAY_SWEEP.extraBeams).toBeGreaterThan(0);
+    expect(CONE_BURST.damageScale).toBeGreaterThan(1);
+    expect(CONE_WALL.duration).toBeGreaterThan(1);
   });
 });

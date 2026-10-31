@@ -1,8 +1,10 @@
 import { PALETTE } from '../config';
 import type { EvolutionId, RunState, WeaponId } from '../core/types';
 
+export { CONE_BURST, CONE_WALL, RAY_LOCK, RAY_SWEEP } from '../config';
+
 export const EVOLUTION_LEVEL = 5;
-export const EVOLUTION_WEAPONS: WeaponId[] = ['dart', 'orbit', 'bomb', 'clone'];
+export const EVOLUTION_WEAPONS: WeaponId[] = ['dart', 'orbit', 'bomb', 'ray', 'cone', 'clone'];
 
 export const DART_BOUNCE = { radius: 280, scale: 0.65, bounces: 1 };
 export const DART_FOCUS = { perHit: 0.12, maxStacks: 6, window: 2.5 };
@@ -50,7 +52,7 @@ export const EVOLUTION_DEFS: Record<EvolutionId, EvolutionDef> = {
     name: '聚焦飞镖',
     symbol: ';+',
     tagline: 'Focus Stack',
-    desc: '连续命中同一目标每次 +12% 伤害，最多 6 层；切换目标或目标死亡后清零',
+    desc: '优先向标记目标倾泻整轮飞镖，集火层数每层 +12% 伤害；按 F 切换标记',
     color: PALETTE.blue,
   },
   orbit_wide: {
@@ -92,6 +94,46 @@ export const EVOLUTION_DEFS: Record<EvolutionId, EvolutionDef> = {
     tagline: 'Chain Reaction',
     desc: '落点延迟 0.35s 爆炸，并在附近敌人处引发二次爆炸，最多连锁 2 层',
     color: PALETTE.yellow,
+  },
+  ray_lock: {
+    id: 'ray_lock',
+    weapon: 'ray',
+    branch: 'A',
+    name: '锁定射线',
+    symbol: '/regex/>',
+    tagline: 'Locked Beam',
+    desc: '优先锁定高血量目标，冷却 -30%，集火层数每层提高 18% 射线伤害；目标死亡时保留一半层数转移到附近敌人',
+    color: PALETTE.green,
+  },
+  ray_sweep: {
+    id: 'ray_sweep',
+    weapon: 'ray',
+    branch: 'B',
+    name: '扫荡射线',
+    symbol: '/regex/*',
+    tagline: 'Sweep Beam',
+    desc: '每次额外发射两道横向射线，覆盖更宽的角度，适合多方向敌群',
+    color: PALETTE.yellow,
+  },
+  cone_burst: {
+    id: 'cone_burst',
+    weapon: 'cone',
+    branch: 'A',
+    name: '爆破屏障',
+    symbol: '//!',
+    tagline: 'Burst Barrier',
+    desc: '扇形范围缩小但伤害 ×1.5、击退 ×3.4，把贴脸怪瞬间推平',
+    color: PALETTE.orange,
+  },
+  cone_wall: {
+    id: 'cone_wall',
+    weapon: 'cone',
+    branch: 'B',
+    name: '注释围墙',
+    symbol: '//#',
+    tagline: 'Comment Wall',
+    desc: '释放后留下 2.6s 的栅栏，穿过它的敌人被减速并持续掉血',
+    color: PALETTE.textDim,
   },
   clone_focus: {
     id: 'clone_focus',

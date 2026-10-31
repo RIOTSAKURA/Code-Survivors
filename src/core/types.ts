@@ -22,8 +22,18 @@ export type EvolutionId =
   | 'orbit_reflect'
   | 'bomb_burn'
   | 'bomb_chain'
+  | 'ray_lock'
+  | 'ray_sweep'
+  | 'cone_burst'
+  | 'cone_wall'
   | 'clone_focus'
   | 'clone_spread';
+
+export type RareModuleId =
+  | 'reflect_charge'
+  | 'gc_vulnerable'
+  | 'focus_transfer'
+  | 'burn_detonate';
 
 export type EnemyTypeId =
   | 'syntax'
@@ -35,7 +45,16 @@ export type EnemyTypeId =
   | 'deadlock'
   | 'breakpoint'
   | 'daemon'
-  | 'boss';
+  | 'boss'
+  | 'boss2';
+
+export type DamageSource =
+  | WeaponId
+  | 'gc'
+  | 'reflect'
+  | 'terrain'
+  | 'event'
+  | 'other';
 
 export interface Stats {
   maxHp: number;
@@ -48,6 +67,31 @@ export interface Stats {
   splitChance: number;
 }
 
+export interface LastHit {
+  source: string;
+  amount: number;
+  at: number;
+}
+
+export interface EventTally {
+  accepted: number;
+  completed: number;
+  failed: number;
+  expired: number;
+}
+
+export interface RunSummary {
+  damage: Partial<Record<DamageSource, number>>;
+  bossDamage: Partial<Record<DamageSource, number>>;
+  overkill: number;
+  cacheActiveTime: number;
+  parallelBonus: number;
+  gcSweeps: number;
+  shieldsBlocked: number;
+  events: EventTally;
+  lastHit: LastHit | null;
+}
+
 export interface RunState {
   stats: Stats;
   hp: number;
@@ -58,8 +102,15 @@ export interface RunState {
   weapons: Partial<Record<WeaponId, number>>;
   passives: Partial<Record<PassiveId, number>>;
   evolutions: Partial<Record<WeaponId, EvolutionId>>;
+  rareModules: Partial<Record<RareModuleId, number>>;
+  summary: RunSummary;
   pendingLevels: number;
   over: boolean;
+  weaponSlots: number;
+  rerolls: number;
+  skips: number;
+  bossKills: number;
+  endless: boolean;
 }
 
 export interface Enemy {
@@ -98,8 +149,15 @@ export interface Enemy {
   knockY: number;
   slowUntil?: number;
   lastWeapon?: WeaponId;
+  lastDamageSource?: DamageSource;
+  vulnerableUntil?: number;
+  vulnerableMult?: number;
   challenge?: boolean;
   empoweredUntil?: number;
+  weakAngle?: number;
+  weakAt?: number;
+  weakUntil?: number;
+  weakNext?: number;
 }
 
 export interface Projectile {
@@ -120,6 +178,8 @@ export interface Projectile {
   fuse: number;
   blast: number;
   weapon?: WeaponId;
+  reflected?: boolean;
+  sourceLabel?: string;
   bounces?: number;
   hold?: number;
   dead: boolean;

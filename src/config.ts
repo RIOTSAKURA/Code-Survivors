@@ -26,6 +26,13 @@ export const PALETTE = {
   white: 0xffffff,
 };
 
+export const RUN = {
+  weaponSlots: 6,
+  rerolls: 2,
+  skips: 2,
+  victoryBosses: 3,
+};
+
 export const PLAYER = {
   maxHp: 100,
   speed: 200,
@@ -54,7 +61,7 @@ export const SPAWN = {
   beamRange: 460,
   xpValueScale: 2.7,
   bossFirstAt: 95,
-  bossEvery: 115,
+  bossEvery: 140,
   hpScalePerMin: 0.26,
   hpScalePerLevel: 0.045,
   hpLateStart: 2.5,
@@ -234,6 +241,128 @@ export const DAEMON = {
   capEvery: 240,
   capMax: 4,
   maxTargets: 6,
+};
+
+export const FOCUS = {
+  markTime: 9,
+  retargetEvery: 1.1,
+  rangeScale: 1.35,
+  overflowShare: 0.25,
+};
+
+export const RAY_LOCK = { perStack: 0.18, maxStacks: 6, window: 3, carry: 0.5, cooldown: 0.7 };
+export const RAY_SWEEP = { fan: 0.72, extraBeams: 2, damageScale: 0.82 };
+export const CONE_BURST = { damageScale: 1.5, rangeScale: 0.82, knockback: 3.4 };
+export const CONE_WALL = {
+  duration: 2.6,
+  distance: 110,
+  thickness: 34,
+  damageScale: 0.35,
+  slowTime: 0.6,
+  tick: 0.4,
+};
+
+export const RARE = {
+  limit: 2,
+  reflectCharge: { perKill: 34, need: 100 },
+  gcVulnerable: { duration: 3.5, mult: 1.28 },
+  focusTransfer: { ratio: 0.5, range: 340 },
+  burnDetonate: { durationScale: 0.65, blastScale: 0.9 },
+};
+
+export const COMBAT = {
+  startAt: 180,
+  themes: [
+    {
+      id: 'support',
+      label: 'SUPPORT BREAK',
+      name: 'Daemon surge',
+      duration: 50,
+      spawnRate: 1.1,
+      hpScale: 1,
+      xpScale: 1,
+      daemonCap: 2,
+      weights: {
+        syntax: 1.1,
+        nullptr: 1,
+        memleak: 1,
+        race: 1.2,
+        stack: 1,
+        thrower: 1.1,
+        deadlock: 0.6,
+        breakpoint: 0.6,
+        daemon: 4.2,
+      },
+    },
+    {
+      id: 'route',
+      label: 'ROUTE CONTROL',
+      name: 'Deadlock / Breakpoint',
+      duration: 50,
+      spawnRate: 1,
+      hpScale: 1,
+      xpScale: 1,
+      breakpointCap: 2,
+      weights: {
+        syntax: 0.6,
+        nullptr: 0.6,
+        memleak: 0.7,
+        race: 0.5,
+        stack: 0.8,
+        thrower: 0.6,
+        deadlock: 3.4,
+        breakpoint: 3.4,
+        daemon: 0.5,
+      },
+    },
+    {
+      id: 'cleanup',
+      label: 'CLEANUP',
+      name: 'fragile swarm',
+      duration: 38,
+      spawnRate: 1.5,
+      hpScale: 0.78,
+      xpScale: 1.15,
+      weights: {
+        syntax: 8,
+        nullptr: 1.2,
+        memleak: 0,
+        race: 0,
+        stack: 0,
+        thrower: 0,
+        deadlock: 0,
+        breakpoint: 0,
+        daemon: 0,
+      },
+    },
+    {
+      id: 'breather',
+      label: 'BREATHER',
+      name: 'loot window',
+      duration: 24,
+      spawnRate: 0.48,
+      hpScale: 1,
+      xpScale: 1,
+      weights: {},
+    },
+  ] as const,
+};
+
+export const BOSS2 = {
+  range: 900,
+  weakEvery: 7.5,
+  weakTime: 2.4,
+  weakSpin: 1.15,
+  weakArc: 1.15,
+  weakMult: 2.6,
+  armorScale: 0.34,
+  chaseSpeed: 1.45,
+  passiveSpeed: 0.72,
+  barrage: {
+    phase1: { every: 2.5, bullets: 5, spread: 0.7, speed: 235, damage: 10 },
+    phase2: { every: 2.2, bullets: 7, spread: 0.9, speed: 250, damage: 12 },
+  },
+  summon: { every: 8, count: 3, pool: ['race', 'race', 'thrower'] as EnemyTypeId[] },
 };
 
 export const ENTRANCE = {

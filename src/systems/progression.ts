@@ -26,6 +26,7 @@ export interface ChoiceCard {
   color: number;
   label?: string;
   chip?: string;
+  synergy?: string;
 }
 
 export interface UpgradeCard extends ChoiceCard {
@@ -52,7 +53,7 @@ export function upgradeWeight(run: RunState, id: UpgradeId): number {
     const def = WEAPON_DEFS[id as WeaponId];
     const level = run.weapons[id as WeaponId] ?? 0;
     if (level >= def.maxLevel) return 0;
-    if (level === 0) return ownedWeaponCount(run) >= MAX_WEAPONS ? 0 : 1;
+    if (level === 0) return ownedWeaponCount(run) >= run.weaponSlots ? 0 : 1;
     return 1.35;
   }
   const def = PASSIVE_DEFS[id as PassiveId];
@@ -60,6 +61,38 @@ export function upgradeWeight(run: RunState, id: UpgradeId): number {
   if (level >= def.maxLevel) return 0;
   if (level === 0) return ownedPassiveCount(run) >= MAX_PASSIVES ? 0 : 0.95;
   return 1.15;
+}
+
+export function synergyFor(run: RunState, id: UpgradeId): string | undefined {
+  const parallel = run.passives.parallel ?? 0;
+  const cache = run.passives.cache ?? 0;
+  const focused = run.evolutions.dart === 'dart_stack' || cache > 0;
+  if (id === 'parallel') {
+    const weapons = ownedWeaponCount(run);
+    return weapons >= 2
+      ? `当前 ${weapons} 把武器可交替触发`
+      : '至少需要 2 把武器才能生效';
+  }
+  if (id === 'cache') {
+    return run.evolutions.dart === 'dart_stack'
+      ? '与聚焦飞镖共用集火层数'
+      : '标记目标连续受击时叠加攻速';
+  }
+  if (id === 'multicore' && run.evolutions.dart === 'dart_stack') {
+    return '额外飞镖会一起集火标记目标';
+  }
+  if (WEAPON_IDS.includes(id as WeaponId)) {
+    if (parallel > 0 && ownedWeaponCount(run) >= 1) {
+      return `与并行计算联动 +${Math.round((0.1 + 0.05 * (parallel - 1)) * 100)}%`;
+    }
+    if (focusWeapon(id as WeaponId, focused)) return '命中标记目标可叠集火层数';
+  }
+  return undefined;
+}
+
+function focusWeapon(id: WeaponId, focused: boolean): boolean {
+  if (!focused) return false;
+  return id === 'dart' || id === 'ray' || id === 'clone' || id === 'orbit';
 }
 
 export function pickChoices(run: RunState, rng: RngLike, count = 3): UpgradeId[] {
@@ -108,6 +141,7 @@ export function toCard(run: RunState, id: UpgradeId): UpgradeCard {
       isNew: level === 0,
       maxed: level >= def.maxLevel,
       color: def.color,
+      synergy: synergyFor(run, id),
     };
   }
   const def = PASSIVE_DEFS[id as PassiveId];
@@ -125,6 +159,7 @@ export function toCard(run: RunState, id: UpgradeId): UpgradeCard {
     isNew: level === 0,
     maxed: level >= def.maxLevel,
     color: def.color,
+    synergy: synergyFor(run, id),
   };
 }
 
@@ -214,6 +249,12 @@ export function applyBossReward(run: RunState, reward: BossReward): RewardOutcom
     case 'restore':
       run.stats.maxHp += 25;
       run.hp = Math.min(run.stats.maxHp, run.hp + run.stats.maxHp * 0.6);
+      break;
+    case 'reflect_charge':
+    case 'gc_vulnerable':
+    case 'focus_transfer':
+    case 'burn_detonate':
+      run.rareModules[reward.id] = (run.rareModules[reward.id] ?? 0) + 1;
       break;
   }
   return outcome;

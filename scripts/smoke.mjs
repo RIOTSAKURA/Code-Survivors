@@ -318,7 +318,7 @@ try {
   const codexClosed = await page.evaluate(() => window.__codex ?? null);
   check(
     codexWeapons?.entries === 6 &&
-      codexBugs?.entries === 10 &&
+      codexBugs?.entries === 11 &&
       codexDrops?.entries === 3 &&
       codexZones?.entries === 4 &&
       codexEvents?.entries === 3 &&
@@ -367,7 +367,7 @@ try {
   await page.waitForTimeout(200);
   const codexScrolled = await page.evaluate(() => window.__codex ?? null);
   check(
-    codexSmall?.entries === 10 && codexSmall?.maxScroll > 0,
+    codexSmall?.entries === 11 && codexSmall?.maxScroll > 0,
     'codex scrolls instead of clipping on short screens',
     JSON.stringify(codexSmall),
   );
@@ -388,6 +388,14 @@ try {
   const opening = await readHud(page);
   check(opening.choices >= 1, 'opening module selection shown', `choices=${opening.choices}`);
   await page.screenshot({ path: join(SHOTS, '2-upgrade-panel.png') });
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(350);
+  const rerolled = await readHud(page);
+  check(
+    rerolled.rerolls === opening.rerolls - 1 && rerolled.choices >= 1,
+    'limited reroll redraws the upgrade panel',
+    `rerolls=${opening.rerolls}->${rerolled.rerolls}`,
+  );
 
   await page.keyboard.press('Digit1');
   await page.waitForTimeout(400);
@@ -542,6 +550,26 @@ try {
 
   await page.close();
 
+  const skipPage = await context.newPage();
+  skipPage.on('pageerror', (e) => errors.push(`pageerror(skip): ${e.message}`));
+  await skipPage.goto(`http://localhost:${PORT}/?slots=4&seed=123456`, { waitUntil: 'load' });
+  await skipPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await skipPage.waitForTimeout(700);
+  await skipPage.keyboard.press('Enter');
+  await skipPage.waitForFunction(() => window.__hud.choices > 0);
+  const skipBefore = await readHud(skipPage);
+  await skipPage.keyboard.press('KeyX');
+  await skipPage.waitForTimeout(400);
+  const skipAfter = await readHud(skipPage);
+  check(
+    skipAfter.skips === skipBefore.skips - 1 &&
+      skipAfter.choices === 0 &&
+      skipAfter.panel === null,
+    'limited skip declines the current draw',
+    `skips=${skipBefore.skips}->${skipAfter.skips} choices=${skipAfter.choices} panel=${skipAfter.panel}`,
+  );
+  await skipPage.close();
+
   const deathPage = await context.newPage();
   deathPage.on('pageerror', (e) => errors.push(`pageerror(death): ${e.message}`));
   await deathPage.goto(`http://localhost:${PORT}/?skip=420&seed=123456`, { waitUntil: 'load' });
@@ -551,6 +579,7 @@ try {
   await deathPage.waitForTimeout(1400);
   await deathPage.keyboard.press('Digit1');
   let died = false;
+  let themeSeen = null;
   let maxLinks = 0;
   let maxMarks = 0;
   let maxBreakpoints = 0;
@@ -564,6 +593,7 @@ try {
     maxMarks = Math.max(maxMarks, deathHud.hazards?.marks ?? 0);
     maxBreakpoints = Math.max(maxBreakpoints, deathHud.hazards?.breakpoints ?? 0);
     maxDaemons = Math.max(maxDaemons, deathHud.hazards?.daemons ?? 0);
+    themeSeen = themeSeen ?? deathHud.theme ?? null;
     if (deathHud.gameOver) {
       died = true;
       break;
@@ -576,14 +606,33 @@ try {
   check(maxLinks > 0, 'deadlocks form dangerous links', `max links=${maxLinks}`);
   check(maxMarks > 0, 'breakpoints leave delayed blast marks', `max marks=${maxMarks}`);
   check(
-    maxBreakpoints > 0 && maxBreakpoints <= 4,
-    'breakpoint population stays capped',
+    maxBreakpoints > 0 && maxBreakpoints <= 6,
+    'breakpoint population stays capped, even in route control',
     `max breakpoints=${maxBreakpoints}`,
   );
   check(
-    maxDaemons > 0 && maxDaemons <= 2,
-    'daemon population stays capped',
+    maxDaemons > 0 && maxDaemons <= 4,
+    'daemon population stays capped, even in support break',
     `max daemons=${maxDaemons}`,
+  );
+  check(Boolean(themeSeen), 'late game announces a combat theme', JSON.stringify(themeSeen));
+  const recap = await deathPage.evaluate(() => window.__report ?? null);
+  check(
+    recap !== null && typeof recap.build === 'string' && recap.summary?.damage,
+    'death screen carries a full run recap',
+    recap ? `boss=${recap.bossKills} bosses=${recap.weaponSlots}` : 'missing',
+  );
+  const recapJson = await deathPage.evaluate(() => window.__reportJson ?? null);
+  let parsedRecap = null;
+  try {
+    parsedRecap = recapJson ? JSON.parse(recapJson) : null;
+  } catch {
+    parsedRecap = null;
+  }
+  check(
+    parsedRecap?.result === 'TERMINATED' && parsedRecap?.run?.kills === recap?.kills,
+    'recap renders as valid JSON',
+    parsedRecap ? `kills=${parsedRecap.run.kills}` : 'invalid JSON',
   );
   await deathPage.waitForTimeout(900);
   await deathPage.screenshot({ path: join(SHOTS, '7-game-over.png') });
@@ -641,6 +690,7 @@ try {
   let maxEnemiesInFight = 0;
   let maxCacheStacks = 0;
   let maxParallelHits = 0;
+  let focusSeen = false;
   const bossDeadline = Date.now() + 150000;
   while (Date.now() < bossDeadline) {
     const hud = await readHud(bossPage);
@@ -654,6 +704,7 @@ try {
     if (hud.choices > 0) await bossPage.keyboard.press('Digit1');
     maxCacheStacks = Math.max(maxCacheStacks, hud.cache?.stacks ?? 0);
     maxParallelHits = Math.max(maxParallelHits, hud.parallelHits ?? 0);
+    focusSeen = focusSeen || Boolean(hud.focus);
     if (hud.boss) {
       bossSeen = bossSeen ?? { ...hud.boss };
       bossCombatStart = bossCombatStart ?? hud.time;
@@ -697,6 +748,7 @@ try {
   );
   check(bossTookDamage, 'boss loses at least 15% health during combat', `lowest hp=${bossLowestHp} max=${bossSeen?.maxHp}`);
   check(maxCacheStacks > 0, 'cache builds focus stacks while attacking', `max stacks=${maxCacheStacks}`);
+  check(focusSeen, 'hud names the marked focus target');
   check(maxParallelHits > 0, 'parallel reacts to alternating weapon hits', `hits=${maxParallelHits}`);
   if (reachedPhase2) {
     check(
@@ -720,6 +772,126 @@ try {
   if (!reachedPhase2) console.log('SKIP  boss reaches phase 2 (see combat outcome above)');
   await bossPage.screenshot({ path: join(SHOTS, '6-boss.png') });
   await bossPage.close();
+
+  const boss2Page = await context.newPage();
+  await boss2Page.setViewportSize({ width: 960, height: 640 });
+  boss2Page.on('pageerror', (e) => errors.push(`pageerror(boss2): ${e.message}`));
+  await boss2Page.goto(
+    `http://localhost:${PORT}/?skip=225&bossKills=1&bossHp=0.4&evolve=orbit&passives=cache,typesafe,memory&seed=123456`,
+    { waitUntil: 'load' },
+  );
+  await boss2Page.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await boss2Page.waitForTimeout(700);
+  await boss2Page.keyboard.press('Enter');
+  await boss2Page.waitForFunction(() => window.__hud.choices > 0);
+  await boss2Page.keyboard.press('Digit1');
+  let boss2Seen = null;
+  let weakSeen = false;
+  const boss2Deadline = Date.now() + 35000;
+  while (Date.now() < boss2Deadline) {
+    const hud = await readHud(boss2Page);
+    if (hud.gameOver) break;
+    if (hud.choices > 0) await boss2Page.keyboard.press('Digit1');
+    if (hud.boss) {
+      boss2Seen = hud.boss.name;
+      weakSeen = weakSeen || Boolean(hud.boss.weak);
+    }
+    if (boss2Seen && weakSeen) break;
+    await boss2Page.waitForTimeout(200);
+  }
+  check(boss2Seen === 'TOCTOU', 'second boss rotates into the schedule', String(boss2Seen));
+  check(weakSeen, 'second boss exposes a timed weak point');
+  await boss2Page.screenshot({ path: join(SHOTS, '20-toctou.png') });
+  await boss2Page.close();
+
+  const victoryPage = await context.newPage();
+  await victoryPage.setViewportSize({ width: 960, height: 640 });
+  victoryPage.on('pageerror', (e) => errors.push(`pageerror(victory): ${e.message}`));
+  await victoryPage.goto(
+    `http://localhost:${PORT}/?skip=370&bossKills=2&bossHp=0.02&slots=4&evolve=dart,bomb,ray,cone&passives=cache,typesafe,memory&seed=123456`,
+    { waitUntil: 'load' },
+  );
+  await victoryPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await victoryPage.waitForTimeout(700);
+  await victoryPage.keyboard.press('Enter');
+  await victoryPage.waitForFunction(() => window.__hud.choices > 0);
+  await victoryPage.keyboard.press('Digit1');
+  let victory = false;
+  const victoryDeadline = Date.now() + 50000;
+  while (Date.now() < victoryDeadline) {
+    const hud = await readHud(victoryPage);
+    if (hud.gameOver) break;
+    if (hud.victory) {
+      victory = true;
+      break;
+    }
+    if (hud.choices > 0) {
+      await victoryPage.keyboard.press('Digit1');
+      await victoryPage.waitForTimeout(170);
+      continue;
+    }
+    await victoryPage.waitForTimeout(200);
+  }
+  const victoryHud = await readHud(victoryPage);
+  check(victory, 'third boss kill ends the standard run in victory', `time=${victoryHud.time.toFixed(1)}`);
+  check(victoryHud.weaponSlots === 4, 'four-slot challenge configuration is exposed', `slots=${victoryHud.weaponSlots}`);
+  const victoryReport = await victoryPage.evaluate(() => window.__report ?? null);
+  check(Boolean(victoryReport?.victory), 'victory recap marks the run as shipped');
+  await victoryPage.waitForTimeout(600);
+  await victoryPage.screenshot({ path: join(SHOTS, '21-victory.png') });
+  if (victory) {
+    const beforeEndless = await readHud(victoryPage);
+    await victoryPage.keyboard.press('KeyR');
+    await victoryPage.waitForTimeout(800);
+    const afterEndless = await readHud(victoryPage);
+    check(
+      afterEndless.victory === false && afterEndless.time > beforeEndless.time + 0.2,
+      'victory offers a seamless endless continuation',
+      `t=${beforeEndless.time.toFixed(1)}->${afterEndless.time.toFixed(1)}`,
+    );
+  }
+  await victoryPage.close();
+
+  const rayPage = await context.newPage();
+  await rayPage.setViewportSize({ width: 960, height: 640 });
+  rayPage.on('pageerror', (e) => errors.push(`pageerror(ray): ${e.message}`));
+  await rayPage.goto(
+    `http://localhost:${PORT}/?skip=10&evolve=ray&passives=multicore&seed=123456`,
+    { waitUntil: 'load' },
+  );
+  await rayPage.waitForFunction(() => Boolean(window.__hud), null, { timeout: 20000 });
+  await rayPage.waitForTimeout(700);
+  await rayPage.keyboard.press('Enter');
+  await rayPage.waitForFunction(() => window.__hud.choices > 0);
+  await rayPage.keyboard.press('Digit1');
+  const rayEvoOpened = await rayPage
+    .waitForFunction(() => window.__hud.panel === 'evolution', null, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (rayEvoOpened) {
+    await rayPage.keyboard.press('Digit1');
+    await rayPage.waitForTimeout(400);
+  }
+  let maxRayStacks = 0;
+  const rayDeadline = Date.now() + 20000;
+  while (Date.now() < rayDeadline) {
+    const hud = await readHud(rayPage);
+    if (hud.gameOver) break;
+    if (hud.choices > 0) await rayPage.keyboard.press('Digit1');
+    maxRayStacks = Math.max(maxRayStacks, hud.focus?.stacks ?? 0);
+    if (maxRayStacks > 0) break;
+    await rayPage.waitForTimeout(180);
+  }
+  const rayHud = await readHud(rayPage);
+  const rayWeapon = rayHud.weapons.find((weapon) => weapon.symbol === '/regex/');
+  check(
+    rayEvoOpened && rayWeapon?.evolution === 'A' && maxRayStacks > 0,
+    'ray lock evolution builds a visible focus chain',
+    `evo=${rayWeapon?.evolution} stacks=${maxRayStacks}`,
+  );
+  await rayPage.waitForTimeout(300);
+  await rayPage.screenshot({ path: join(SHOTS, '22-ray-lock.png') });
+  await rayPage.close();
 
   const evoPage = await context.newPage();
   await evoPage.setViewportSize({ width: 960, height: 640 });
@@ -906,6 +1078,10 @@ try {
     const hud = await readHud(packetPage);
     if (hud.gameOver) break;
     const packet = findEvent(hud, 'packet');
+    if (packetEngaged && hud.panel === 'evolution') {
+      packetEvo = true;
+      break;
+    }
     if (packet?.interactable && !packet.active) {
       await packetPage.keyboard.press('KeyE');
       await packetPage.waitForTimeout(200);

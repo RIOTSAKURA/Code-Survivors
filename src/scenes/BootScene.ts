@@ -21,6 +21,7 @@ const ENEMY_TEXTURES: Array<[string, string, number]> = [
   ['e_breakpoint', '^!', 26],
   ['e_daemon', '&', 30],
   ['e_boss', '0xDEAD', 58],
+  ['e_boss2', '0xT0C', 54],
 ];
 
 const ITEM_TEXTURES: Array<[string, string, number]> = [

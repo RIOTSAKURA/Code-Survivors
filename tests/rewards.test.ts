@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/core/rng';
 import { createRun } from '../src/core/state';
 import type { BossReward } from '../src/data/rewards';
-import { REPAIR_REWARD, rollBossRewards, rollRareModule } from '../src/data/rewards';
+import {
+  RARE_MODULES,
+  REPAIR_REWARD,
+  availableRareModules,
+  rollBossRewards,
+  rollRareModule,
+} from '../src/data/rewards';
 import { applyBossReward } from '../src/systems/progression';
 
 const moduleReward = (id: BossReward['id']): BossReward => ({
@@ -57,19 +63,45 @@ describe('boss rewards', () => {
     run.evolutions.dart = 'dart_bounce';
     run.evolutions.orbit = 'orbit_reflect';
     run.evolutions.bomb = 'bomb_burn';
+    run.evolutions.ray = 'ray_lock';
+    run.evolutions.cone = 'cone_wall';
     run.evolutions.clone = 'clone_focus';
     const rewards = rollBossRewards(run, new Rng(3));
     expect(rewards).toHaveLength(3);
-    expect(rewards.filter((r) => r.id.startsWith('module_'))).toHaveLength(2);
+    expect(rewards.filter((r) => r.id !== 'restore')).toHaveLength(2);
     expect(rewards.some((r) => r.id === 'restore')).toBe(true);
   });
 
-  it('rolls only rare modules for the dangerous commit', () => {
+  it('rolls modules for the dangerous commit', () => {
     for (let seed = 1; seed <= 30; seed++) {
-      const reward = rollRareModule(new Rng(seed));
+      const reward = rollRareModule(createRun(), new Rng(seed));
       expect(reward.id.startsWith('module_')).toBe(true);
       expect(reward.name.length).toBeGreaterThan(0);
     }
+  });
+
+  it('gates rare modules behind the build that makes them useful', () => {
+    const plain = createRun();
+    plain.weapons.dart = 8;
+    expect(availableRareModules(plain)).toHaveLength(0);
+
+    const focus = createRun();
+    focus.evolutions.dart = 'dart_stack';
+    focus.passives.gc = 1;
+    focus.evolutions.orbit = 'orbit_reflect';
+    focus.evolutions.bomb = 'bomb_burn';
+    const ids = availableRareModules(focus).map((module) => module.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(['reflect_charge', 'gc_vulnerable', 'focus_transfer', 'burn_detonate']),
+    );
+
+    focus.rareModules.focus_transfer = 1;
+    focus.rareModules.gc_vulnerable = 1;
+    expect(availableRareModules(focus)).toHaveLength(0);
+
+    focus.rareModules = {};
+    const rewards = rollBossRewards(focus, new Rng(7));
+    expect(rewards.some((reward) => RARE_MODULES.some((module) => module.id === reward.id))).toBe(true);
   });
 
   it('applies every module effect', () => {

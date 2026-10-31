@@ -70,6 +70,18 @@ describe('pickChoices', () => {
     expect(choices).toHaveLength(0);
   });
 
+  it('honours the configured weapon slot count', () => {
+    const run = createRun(4);
+    for (const id of ['dart', 'orbit', 'bomb', 'ray'] as const) run.weapons[id] = 1;
+    const choices = pickChoices(run, new Rng(13), 12);
+    for (const id of choices) {
+      if (!WEAPON_IDS.includes(id as never)) continue;
+      expect(run.weapons[id as 'dart'] ?? 0).toBeGreaterThan(0);
+    }
+    expect(run.rerolls).toBe(2);
+    expect(run.skips).toBe(2);
+  });
+
   it('stops offering new weapons once all six are owned', () => {
     const run = createRun();
     for (const id of WEAPON_IDS) run.weapons[id] = 1;
@@ -163,6 +175,18 @@ describe('toCard', () => {
     expect(card.level).toBe(0);
     expect(card.nextLevel).toBe(1);
     expect(card.desc.length).toBeGreaterThan(0);
+  });
+
+  it('shows synergy with the current build on cards', () => {
+    const run = createRun();
+    run.weapons.dart = 1;
+    run.weapons.bomb = 1;
+    run.passives.parallel = 2;
+    expect(toCard(run, 'parallel').synergy).toContain('2 把武器');
+    expect(toCard(run, 'ray').synergy).toContain('并行');
+    run.evolutions.dart = 'dart_stack';
+    expect(toCard(run, 'cache').synergy).toContain('集火');
+    expect(toCard(run, 'multicore').synergy).toContain('集火');
   });
 
   it('describes an upgrade for an owned weapon', () => {
